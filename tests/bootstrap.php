@@ -1,4 +1,3 @@
-
 <?php
 
 // Localizar las herramientas compartidas del proyecto.
@@ -16,6 +15,16 @@ require_once $comun . '/logger.php';
 require_once $comun . '/response.php';
 require_once $comun . '/request.php';
 require_once $comun . '/router.php';
+require_once $comun . '/database.php';
+require_once $comun . '/auth.php';
+require_once $comun . '/validator.php';
 
-// Cargar las clases del módulo Pacientes.
-require_once __DIR__ . '/../src/CalendarioSanitario.php';
+
+spl_autoload_register(function (string $clase): void {
+    $archivo = __DIR__ . '/../src/' . $clase . '.php';
+
+    if (is_file($archivo)) {
+        require_once $archivo;
+    }
+});
+
