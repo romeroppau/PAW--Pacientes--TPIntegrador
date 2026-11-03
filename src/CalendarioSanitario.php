@@ -1,4 +1,3 @@
-
 <?php
 
 // Calendario sanitario de cada mascota (plan_sanitario y evento_sanitario).
