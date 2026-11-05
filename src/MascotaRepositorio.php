@@ -1,0 +1,72 @@
+<?php
+
+// Acceso a la base de las mascotas (lectura). Todas las consultas SQL usan parámetros.
+class MascotaRepositorio
+{
+    // Cada mascota con su dueño y la edad en meses al día $hoy (el primer parámetro de cada consulta).
+    private const SELECT_MASCOTA =
+        'SELECT m.id, m.nombre, m.especie, m.raza, m.fecha_nacimiento,
+                TIMESTAMPDIFF(MONTH, m.fecha_nacimiento, ?) AS edad_meses,
+                m.peso_kg, m.foto IS NOT NULL AS tiene_foto, m.activo,
+                d.id AS duenio_id, d.nombre AS duenio_nombre, d.telefono AS duenio_telefono
+         FROM mascota m
+         JOIN usuario d ON d.id = m.duenio_id';
+
+    public function __construct(private PDO $db)
+    {
+    }
+
+    // Mascotas activas ordenadas por nombre (hasta 100). Con $duenioId, solo las de ese cliente.
+    // Con $buscar, las que tienen ese texto en su nombre o en el del dueño.
+    public function listar(string $hoy, ?int $duenioId, string $buscar = ''): array
+    {
+        $sql = self::SELECT_MASCOTA . ' WHERE m.activo = 1';
+        $parametros = [$hoy];
+
+        if ($duenioId !== null) {
+            $sql .= ' AND m.duenio_id = ?';
+            $parametros[] = $duenioId;
+        }
+
+        if ($buscar !== '') {
+            // Los comodines de LIKE (% y _) que escriba el usuario se buscan como texto.
+            $patron = '%' . addcslashes($buscar, '%_\\') . '%';
+            $sql .= ' AND (m.nombre LIKE ? OR d.nombre LIKE ?)';
+            array_push($parametros, $patron, $patron);
+        }
+
+        return $this->mascotas($sql . ' ORDER BY m.nombre, m.id LIMIT 100', $parametros);
+    }
+
+    // Una mascota, activa o no, o null si no existe.
+    public function detalle(int $id, string $hoy): ?array
+    {
+        return $this->mascotas(self::SELECT_MASCOTA . ' WHERE m.id = ?', [$hoy, $id])[0] ?? null;
+    }
+
+    // ---------- Ayudas ----------
+
+    // Ejecuta la consulta y arma cada mascota con la forma del contrato.
+    private function mascotas(string $sql, array $parametros): array
+    {
+        $sentencia = $this->db->prepare($sql);
+        $sentencia->execute($parametros);
+
+        return array_map(fn (array $fila): array => [
+            'id' => (int) $fila['id'],
+            'nombre' => $fila['nombre'],
+            'especie' => $fila['especie'],
+            'raza' => $fila['raza'],
+            'fecha_nacimiento' => $fila['fecha_nacimiento'],
+            'edad_meses' => $fila['edad_meses'] === null ? null : (int) $fila['edad_meses'],
+            'peso_kg' => $fila['peso_kg'],
+            'tiene_foto' => (bool) $fila['tiene_foto'],
+            'activo' => (bool) $fila['activo'],
+            'duenio' => [
+                'id' => (int) $fila['duenio_id'],
+                'nombre' => $fila['duenio_nombre'],
+                'telefono' => $fila['duenio_telefono']
+            ]
+        ], $sentencia->fetchAll());
+    }
+}
