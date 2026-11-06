@@ -87,9 +87,12 @@ Respuestas:
 - 400: falta el diagnóstico.
 - 404: no existe.
 - 409 por stock: `{"error": "Stock insuficiente", "items": [{"tipo": "INSUMO", "id": 3, "stock": 0}]}`. No se finaliza ni se descuenta nada.
-- 502: Inventario no responde o rechaza el pedido. La consulta sigue `ABIERTA`; reintentar es seguro.
+- 409 por ítem inexistente: Inventario no encontró un insumo o producto de la consulta (respondió 404). No se finaliza nada; hay que quitar el ítem y reintentar.
+- 502: Inventario no responde o rechaza el pedido (por ejemplo, token interno inválido). La consulta sigue `ABIERTA`; reintentar es seguro.
 
-Pendiente (acordar con el rol 3): si el motivo del turno es `VACUNACION`, marcar como aplicado el evento del calendario sanitario con `CalendarioSanitario::marcarAplicado()`. Todavía no está implementado.
+Si el motivo del turno es `VACUNACION`, dentro de la misma transacción se marca como aplicada la vacuna pendiente de la mascota en el calendario sanitario (`CalendarioSanitario::vacunaPendiente()` y `marcarAplicado()`). Si la mascota no tiene una vacuna pendiente, no se marca nada. Si algo falla, se deshace todo junto con la factura.
+
+`finalizada_en` y la `fecha` de la factura están en hora de Argentina.
 
 ## Ver factura
 `GET /api/pacientes/consultas/{id}/factura` — Veterinario.
