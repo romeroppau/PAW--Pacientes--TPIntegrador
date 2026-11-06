@@ -173,13 +173,16 @@ class ConsultaRepositorio
         });
     }
 
-    // Cierra la consulta en una transacción: factura, consulta FINALIZADA y turno ATENDIDO.
+    // Cierra la consulta en una transacción: factura, consulta FINALIZADA, turno ATENDIDO y, si el turno
+    // era de vacunación, la vacuna que le tocaba a la mascota queda aplicada en el calendario.
     // Devuelve la factura, o null si la consulta no existe o ya estaba finalizada.
     public function finalizar(int $consultaId): ?array
     {
         return $this->enTransaccion(function () use ($consultaId): ?array {
             $consulta = $this->fila(
-                'SELECT valor_base, estado, turno_id FROM consulta WHERE id = ? FOR UPDATE',
+                'SELECT c.valor_base, c.estado, c.turno_id, t.motivo, t.mascota_id
+                 FROM consulta c JOIN turno t ON t.id = c.turno_id
+                 WHERE c.id = ? FOR UPDATE',
                 [$consultaId]
             );
 
@@ -193,14 +196,17 @@ class ConsultaRepositorio
                 $this->items($consultaId, 'productos')
             );
 
+            // La hora sale de PHP (hora de Argentina, ver index.php): NOW() de MySQL está en UTC.
+            $ahora = date('Y-m-d H:i:s');
+
             // El número definitivo usa el id de la factura, que se conoce recién después del INSERT.
             $this->ejecutar(
                 'INSERT INTO factura_consulta
-                   (numero, consulta_id, subtotal_base, subtotal_insumos, subtotal_productos, total)
-                 VALUES (?, ?, ?, ?, ?, ?)',
+                   (numero, consulta_id, subtotal_base, subtotal_insumos, subtotal_productos, total, fecha)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)',
                 [
                     'C-TMP-' . $consultaId, $consultaId, $importes['subtotal_base'],
-                    $importes['subtotal_insumos'], $importes['subtotal_productos'], $importes['total']
+                    $importes['subtotal_insumos'], $importes['subtotal_productos'], $importes['total'], $ahora
                 ]
             );
             $facturaId = (int) $this->db->lastInsertId();
@@ -210,11 +216,22 @@ class ConsultaRepositorio
             );
 
             $this->ejecutar(
-                "UPDATE consulta SET estado = 'FINALIZADA', finalizada_en = NOW()
+                "UPDATE consulta SET estado = 'FINALIZADA', finalizada_en = ?
                  WHERE id = ? AND estado = 'ABIERTA'",
-                [$consultaId]
+                [$ahora, $consultaId]
             );
             $this->ejecutar("UPDATE turno SET estado = 'ATENDIDO' WHERE id = ?", [$consulta['turno_id']]);
+
+            // Turno de vacunación: se marca en el calendario la vacuna que le tocaba a la mascota.
+            // marcarAplicado() no abre otra transacción: si algo falla, se deshace todo junto con la factura.
+            if ($consulta['motivo'] === 'VACUNACION') {
+                $calendario = new CalendarioSanitario($this->db);
+                $eventoId = $calendario->vacunaPendiente((int) $consulta['mascota_id']);
+
+                if ($eventoId !== null) {
+                    $calendario->marcarAplicado($eventoId, $consultaId);
+                }
+            }
 
             return $this->factura($consultaId);
         });

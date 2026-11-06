@@ -161,7 +161,7 @@ class ConsultaControlador
         // Se arma la lista de ítems a descontar en Inventario, con id_operacion único por ítem de la consulta.
         foreach ($consulta['insumos'] as $item) {
             $items[] = [
-                'tipo' => 'INSUMO', 'id' => $item['insumo_id'], 'cantidad' => $item['cantidad'],
+                'tipo' => 'INSUMO', 'id' => (int) $item['insumo_id'], 'cantidad' => (int) $item['cantidad'],
                 'id_operacion' => "consulta-$id-insumo-{$item['id']}"
             ];
         }
@@ -169,7 +169,7 @@ class ConsultaControlador
         // Se arma la lista de ítems a descontar en Inventario, con id_operacion único por ítem de la consulta.
         foreach ($consulta['productos'] as $item) {
             $items[] = [
-                'tipo' => 'PRODUCTO', 'id' => $item['producto_id'], 'cantidad' => $item['cantidad'],
+                'tipo' => 'PRODUCTO', 'id' => (int) $item['producto_id'], 'cantidad' => (int) $item['cantidad'],
                 'id_operacion' => "consulta-$id-producto-{$item['id']}"
             ];
         }
@@ -182,6 +182,13 @@ class ConsultaControlador
                     'error' => 'Stock insuficiente',
                     'items' => $respuesta['datos']['items'] ?? []
                 ], 409);
+                return;
+            }
+
+            // Un insumo o producto de la consulta ya no existe en Inventario: se agregó mientras existía.
+            if ($respuesta['codigo'] === 404) {
+                Logger::error("Pacientes: Inventario no encontró un ítem al finalizar la consulta $id");
+                Response::error('Un insumo o producto de la consulta ya no existe en Inventario. Quitalo e intentá de nuevo.', 409);
                 return;
             }
 
