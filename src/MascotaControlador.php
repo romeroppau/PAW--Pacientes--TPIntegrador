@@ -45,6 +45,103 @@ class MascotaControlador
         Response::json($mascota);
     }
 
+    // POST /api/pacientes/mascotas — el cliente da de alta una mascota suya (el dueño sale de la sesión).
+    // Al crearla se arma su calendario sanitario.
+    public static function crear(): void
+    {
+        $sesion = self::cliente();
+        $hoy = date('Y-m-d');
+
+        [$datos, $errores] = ValidadorMascota::validar(Request::json(), $hoy);
+
+        if ($errores !== []) {
+            Response::error('Revisá los datos de la mascota', 400, $errores);
+            return;
+        }
+
+        $repositorio = self::repositorio();
+        $id = $repositorio->crear((int) $sesion['id'], $datos, $hoy);
+
+        Response::json($repositorio->detalle($id, $hoy), 201);
+    }
+
+    // PUT /api/pacientes/mascotas/{id} — el cliente edita una mascota suya y activa.
+    public static function actualizar(array $parametros): void
+    {
+        $sesion = self::cliente();
+        $hoy = date('Y-m-d');
+        $repositorio = self::repositorio();
+        $mascota = self::propia($repositorio, $sesion, $parametros, $hoy);
+
+        if ($mascota === null) {
+            return;
+        }
+
+        [$datos, $errores] = ValidadorMascota::validar(Request::json(), $hoy);
+
+        if ($errores !== []) {
+            Response::error('Revisá los datos de la mascota', 400, $errores);
+            return;
+        }
+
+        $repositorio->actualizar($mascota['id'], $datos, $hoy);
+
+        Response::json($repositorio->detalle($mascota['id'], $hoy));
+    }
+
+    // DELETE /api/pacientes/mascotas/{id} — baja lógica de una mascota del cliente.
+    // Si tiene turnos programados, primero hay que cancelarlos (los cancela el veterinario).
+    public static function darDeBaja(array $parametros): void
+    {
+        $sesion = self::cliente();
+        $hoy = date('Y-m-d');
+        $repositorio = self::repositorio();
+        $mascota = self::propia($repositorio, $sesion, $parametros, $hoy);
+
+        if ($mascota === null) {
+            return;
+        }
+
+        if ($repositorio->turnosProgramados($mascota['id'], $hoy) > 0) {
+            Response::error('La mascota tiene turnos programados: pedile a la veterinaria que los cancele', 409);
+            return;
+        }
+
+        $repositorio->darDeBaja($mascota['id']);
+        http_response_code(204);
+    }
+
+    // ---------- Ayudas ----------
+
+    // Exige sesión de cliente y el token CSRF (las altas, ediciones y bajas son POST, PUT y DELETE).
+    private static function cliente(): array
+    {
+        $sesion = Auth::requerirRol(['CLIENTE']);
+        Auth::verificarCsrf($sesion);
+
+        return $sesion;
+    }
+
+    // La mascota activa del {id}, si es del cliente de la sesión. Si no, responde 404 y devuelve null:
+    // la de otro cliente da 404, igual que si no existiera. Una dada de baja ya no se edita (409).
+    private static function propia(MascotaRepositorio $repositorio, array $sesion, array $parametros, string $hoy): ?array
+    {
+        $id = ParametroRuta::entero($parametros, 'id');
+        $mascota = $id === null ? null : $repositorio->detalle($id, $hoy);
+
+        if ($mascota === null || $mascota['duenio']['id'] !== (int) $sesion['id']) {
+            Response::error('Mascota no encontrada', 404);
+            return null;
+        }
+
+        if (!$mascota['activo']) {
+            Response::error('La mascota está dada de baja', 409);
+            return null;
+        }
+
+        return $mascota;
+    }
+
     private static function repositorio(): MascotaRepositorio
     {
         return new MascotaRepositorio(Database::conectar());

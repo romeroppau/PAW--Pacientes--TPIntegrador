@@ -45,6 +45,36 @@ class TurnoControlador
         self::cambiarEstado($parametros, 'AUSENTE', date('Y-m-d'));
     }
 
+    // POST /api/pacientes/turnos — el veterinario carga un turno (se coordinan por WhatsApp).
+    // El veterinario del turno es el de la sesión, nunca uno que venga en el cuerpo.
+    public static function crear(): void
+    {
+        $sesion = Auth::requerirRol(['VETERINARIO']);
+        Auth::verificarCsrf($sesion);
+
+        [$datos, $errores] = ValidadorTurno::validarAlta(Request::json(), date('Y-m-d'));
+
+        if ($errores !== []) {
+            Response::error('Revisá los datos del turno', 400, $errores);
+            return;
+        }
+
+        $repositorio = self::repositorio();
+        $resultado = $repositorio->crear($datos, (int) $sesion['id']);
+
+        if ($resultado === 'mascota_inexistente') {
+            Response::error('Mascota no encontrada', 404);
+            return;
+        }
+
+        if ($resultado === 'ocupado') {
+            Response::error('Ya hay un turno a esa hora', 409, ['hora' => 'Ya tenés un turno a esa hora']);
+            return;
+        }
+
+        Response::json(['turno' => $repositorio->detalle($resultado)], 201);
+    }
+
     // ---------- Ayudas ----------
 
     private static function cambiarEstado(array $parametros, string $estado, ?string $hastaFecha): void

@@ -42,6 +42,33 @@ class TurnoRepositorio
         return $this->turnos(self::SELECT_TURNO . ' WHERE t.id = ?', [$id])[0] ?? null;
     }
 
+    // Carga un turno PROGRAMADO. $datos viene de ValidadorTurno.
+    // Devuelve el id nuevo, 'mascota_inexistente' (no existe o está dada de baja) u 'ocupado'
+    // (el veterinario ya tiene un turno a esa hora; los cancelados no cuentan).
+    public function crear(array $datos, int $veterinarioId): int|string
+    {
+        $activa = $this->db->prepare('SELECT 1 FROM mascota WHERE id = ? AND activo = 1');
+        $activa->execute([$datos['mascota_id']]);
+
+        if ($activa->fetchColumn() === false) {
+            return 'mascota_inexistente';
+        }
+
+        try {
+            $this->db->prepare(
+                'INSERT INTO turno (mascota_id, veterinario_id, fecha, hora, motivo) VALUES (?, ?, ?, ?, ?)'
+            )->execute([$datos['mascota_id'], $veterinarioId, $datos['fecha'], $datos['hora'], $datos['motivo']]);
+        } catch (PDOException $error) {
+            // 1062: choca con uq_turno_veterinario_horario (migración 004).
+            if (($error->errorInfo[1] ?? null) === 1062) {
+                return 'ocupado';
+            }
+            throw $error;
+        }
+
+        return (int) $this->db->lastInsertId();
+    }
+
     // Pasa un turno PROGRAMADO a $estado (CANCELADO o AUSENTE). Con $hastaFecha, solo si el turno es de
     // ese día o anterior. Devuelve 'ok', 'inexistente', 'no_programado' o 'futuro'.
     // El UPDATE comprueba el estado en la misma sentencia: si dos pedidos llegan juntos, cambia uno solo.
