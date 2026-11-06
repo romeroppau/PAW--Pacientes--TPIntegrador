@@ -44,6 +44,60 @@ class MascotaRepositorio
         return $this->mascotas(self::SELECT_MASCOTA . ' WHERE m.id = ?', [$hoy, $id])[0] ?? null;
     }
 
+    // Da de alta una mascota y le arma su calendario sanitario, en una sola transacción.
+    // $datos viene de ValidadorMascota. Devuelve el id nuevo.
+    public function crear(int $duenioId, array $datos, string $hoy): int
+    {
+        $this->db->beginTransaction();
+
+        try {
+            $this->db->prepare(
+                'INSERT INTO mascota (duenio_id, nombre, especie, raza, fecha_nacimiento, peso_kg) VALUES (?, ?, ?, ?, ?, ?)'
+            )->execute([
+                $duenioId, $datos['nombre'], $datos['especie'], $datos['raza'], $datos['fecha_nacimiento'], $datos['peso_kg']
+            ]);
+            $id = (int) $this->db->lastInsertId();
+
+            (new CalendarioSanitario($this->db))->generarPara($id, $hoy);
+            $this->db->commit();
+
+            return $id;
+        } catch (Throwable $error) {
+            $this->db->rollBack();
+            throw $error;
+        }
+    }
+
+    // Cambia los datos de una mascota. Si cambian la especie o la fecha de nacimiento, el calendario
+    // suma los ítems del plan que le falten (no borra los que ya tenía).
+    public function actualizar(int $id, array $datos, string $hoy): void
+    {
+        $this->db->prepare(
+            'UPDATE mascota SET nombre = ?, especie = ?, raza = ?, fecha_nacimiento = ?, peso_kg = ? WHERE id = ?'
+        )->execute([
+            $datos['nombre'], $datos['especie'], $datos['raza'], $datos['fecha_nacimiento'], $datos['peso_kg'], $id
+        ]);
+
+        (new CalendarioSanitario($this->db))->generarPara($id, $hoy);
+    }
+
+    // Baja lógica: la ficha, el historial y el calendario se conservan.
+    public function darDeBaja(int $id): void
+    {
+        $this->db->prepare('UPDATE mascota SET activo = 0 WHERE id = ?')->execute([$id]);
+    }
+
+    // Cuántos turnos PROGRAMADO tiene la mascota de hoy en adelante.
+    public function turnosProgramados(int $id, string $hoy): int
+    {
+        $sentencia = $this->db->prepare(
+            "SELECT COUNT(*) FROM turno WHERE mascota_id = ? AND estado = 'PROGRAMADO' AND fecha >= ?"
+        );
+        $sentencia->execute([$id, $hoy]);
+
+        return (int) $sentencia->fetchColumn();
+    }
+
     // ---------- Ayudas ----------
 
     // Ejecuta la consulta y arma cada mascota con la forma del contrato.

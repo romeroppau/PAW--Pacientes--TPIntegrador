@@ -2,12 +2,13 @@
 
 Autor: rol 3 (Valentino). Prefijo de todas las rutas: `/api/pacientes`.
 
-Esta es la etapa 1 (lo que necesita la consulta): la agenda, el cambio de estado de los turnos y la
-lectura de mascotas. El alta de turnos y el ABM de mascotas son de la etapa 3 y se suman a este contrato.
+Etapa 1 (lo que necesita la consulta): la agenda, el cambio de estado de los turnos y la lectura de
+mascotas. Etapa 3: el alta de turnos (veterinario) y el alta, la edición y la baja de mascotas (cliente).
 
 ## Reglas generales
 - Sin sesión: 401. Con una sesión de otro rol: 403. Los rescatistas reciben 403 en todas estas rutas.
-- POST exige el token CSRF: sin él, 403.
+- POST, PUT y DELETE exigen el token CSRF: sin él, 403.
+- Los datos inválidos dan 400 con un error por campo: `{"error": "Revisá los datos…", "campos": {"nombre": "El nombre es obligatorio"}}`.
 - El id del usuario sale de la sesión, nunca del pedido.
 - Un cliente solo ve sus mascotas y los turnos de sus mascotas. La mascota de otro cliente da 404,
   igual que si no existiera (no se revela que existe).
@@ -79,3 +80,38 @@ lectura de mascotas. El alta de turnos y el ABM de mascotas son de la etapa 3 y 
 `GET /api/pacientes/mascotas/{id}` — Veterinario (cualquiera) o cliente (solo las suyas).
 - 200: la mascota (también si está dada de baja: su ficha y su historial se conservan).
 - 404: la mascota no existe o es de otro cliente.
+
+## Cargar un turno (etapa 3)
+`POST /api/pacientes/turnos` — Veterinario. Los turnos se coordinan por WhatsApp y los carga el veterinario;
+el veterinario del turno es el de la sesión.
+
+Cuerpo: `{"mascota_id": 101, "fecha": "2026-11-10", "hora": "10:30", "motivo": "CONSULTA"}`.
+`motivo`: `CONSULTA`, `VACUNACION` o `CHEQUEO_ADOPCION`. El turno queda `PROGRAMADO`.
+- 201: `{"turno": { ... }}`
+- 400: un error por campo (`mascota_id` no entero, fecha inválida o anterior a hoy, hora que no es `HH:MM`, motivo inválido).
+- 404: la mascota no existe o está dada de baja.
+- 409: el veterinario ya tiene un turno a esa hora (los cancelados no cuentan). Viene con `campos.hora`.
+
+## Dar de alta una mascota (etapa 3)
+`POST /api/pacientes/mascotas` — Cliente. El dueño es el cliente de la sesión.
+
+Cuerpo: `{"nombre": "Firulais", "especie": "PERRO", "raza": "Mestizo", "fecha_nacimiento": "2023-11-05", "peso_kg": 18.5}`.
+- `nombre` (hasta 80) y `especie` (`PERRO`, `GATO` u `OTRO`) son obligatorios.
+- `raza` (hasta 80), `fecha_nacimiento` (no futura ni de hace más de 40 años) y `peso_kg` (mayor a 0, hasta 999.99) son opcionales.
+- Al crearla se arma su **calendario sanitario** (`CalendarioSanitario::generarPara`), en la misma transacción. Sin fecha de nacimiento, el calendario queda vacío.
+- 201: la mascota.
+- 400: un error por campo.
+
+## Editar una mascota (etapa 3)
+`PUT /api/pacientes/mascotas/{id}` — Cliente, solo las suyas. Mismo cuerpo y mismas reglas que el alta (se mandan todos los campos).
+- Si cambia la especie o la fecha de nacimiento, el calendario suma los ítems del plan que le falten; no borra los que ya tenía.
+- 200: la mascota actualizada.
+- 400: un error por campo.
+- 404: no existe o es de otro cliente.
+- 409: está dada de baja.
+
+## Dar de baja una mascota (etapa 3)
+`DELETE /api/pacientes/mascotas/{id}` — Cliente, solo las suyas. Baja lógica: su ficha, su historial y su calendario se conservan.
+- 204: sin cuerpo.
+- 404: no existe o es de otro cliente.
+- 409: ya está dada de baja, o tiene turnos programados de hoy en adelante (primero los cancela el veterinario).
