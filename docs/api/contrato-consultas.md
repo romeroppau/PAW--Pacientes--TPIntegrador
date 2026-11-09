@@ -63,7 +63,8 @@ Cuerpo, todos los campos opcionales: `{"diagnostico": "texto", "observaciones": 
 `POST /api/pacientes/consultas/{id}/productos` — cuerpo `{"producto_id": 7, "cantidad": 1}`.
 Veterinario.
 - 201: la consulta con sus ítems y total.
-- 400: id o cantidad que no son enteros mayores a 0; cantidad mayor a 100.000.
+- 400: id o cantidad que no son enteros mayores a 0; cantidad mayor a 100.000. El tope es para el total del ítem en la consulta: si el insumo o producto ya estaba, se suma lo que había y el total tampoco puede pasar de 100.000 (`"La cantidad total de este ítem en la consulta no puede superar 100000."`).
+
 - 404: la consulta no existe, o el insumo o producto no existe o está dado de baja.
 - 409: la consulta está `FINALIZADA`.
 
