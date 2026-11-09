@@ -4,6 +4,9 @@
 // Los nombres de tabla y columna salen de TIPOS, nunca del pedido.
 class ConsultaRepositorio
 {
+    // Tope de la cantidad de un mismo insumo o producto en una consulta (sumando todas las veces que se agregó).
+    public const CANTIDAD_MAXIMA = 100000;
+
     private const TIPOS = [
         'insumos' => [
             'item' => 'item_insumo_consulta', 'catalogo' => 'insumo',
@@ -112,7 +115,7 @@ class ConsultaRepositorio
     }
 
     // Agrega un insumo o producto; si ya estaba, suma la cantidad. Copia el costo o precio de ese momento.
-    // Devuelve 'ok', 'consulta_inexistente', 'finalizada' o 'item_inexistente'.
+    // Devuelve 'ok', 'consulta_inexistente', 'finalizada', 'item_inexistente' o 'supera_maximo'.
     public function agregarItem(int $consultaId, string $tipo, int $itemId, int $cantidad): string
     {
         $t = self::TIPOS[$tipo];
@@ -135,6 +138,18 @@ class ConsultaRepositorio
 
             if ($precio === null) {
                 return 'item_inexistente';
+            }
+
+            // El tope cuenta lo que ya había de este ítem en la consulta: agregarlo de nuevo suma,
+            // y el total tampoco puede pasar el máximo. La consulta está bloqueada (FOR UPDATE arriba),
+            // así que dos pedidos al mismo tiempo no pueden pasarlo entre los dos.
+            $yaHay = (int) $this->valor(
+                "SELECT cantidad FROM {$t['item']} WHERE consulta_id = ? AND {$t['columna']} = ?",
+                [$consultaId, $itemId]
+            );
+
+            if ($yaHay + $cantidad > self::CANTIDAD_MAXIMA) {
+                return 'supera_maximo';
             }
 
             $this->ejecutar(

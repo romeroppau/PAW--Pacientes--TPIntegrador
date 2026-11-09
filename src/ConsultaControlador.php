@@ -6,7 +6,6 @@ class ConsultaControlador
 {
     private const CONSULTA_NO_ENCONTRADA = 'Consulta no encontrada';
     private const CONSULTA_FINALIZADA = 'La consulta ya está finalizada';
-    private const CANTIDAD_MAXIMA = 100000;
 
     // POST /api/pacientes/turnos/{id}/atencion
     public static function iniciarAtencion(array $parametros): void
@@ -260,9 +259,10 @@ class ConsultaControlador
         $datos = Request::json();
         $errores = ValidadorConsulta::validarItem($datos, $campoId);
 
-        if ($errores === [] && $datos['cantidad'] > self::CANTIDAD_MAXIMA) {
-            $errores[] = 'La cantidad no puede superar ' . self::CANTIDAD_MAXIMA . '.';
+        if ($errores === [] && $datos['cantidad'] > ConsultaRepositorio::CANTIDAD_MAXIMA) {
+            $errores[] = 'La cantidad no puede superar ' . ConsultaRepositorio::CANTIDAD_MAXIMA . '.';
         }
+
 
         if ($errores !== []) {
             Response::error(implode(' ', $errores), 400);
@@ -308,6 +308,10 @@ class ConsultaControlador
             case 'finalizada':
                 Response::error(self::CONSULTA_FINALIZADA, 409);
                 return true;
+            case 'supera_maximo':
+                Response::error('La cantidad total de este ítem en la consulta no puede superar ' . ConsultaRepositorio::CANTIDAD_MAXIMA . '.',400);
+                return true;
+
             default:
                 Response::error($itemNoEncontrado, 404);
                 return true;
