@@ -176,6 +176,16 @@ class ConsultaControlador
         if ($items !== []) {
             $respuesta = ClienteInventario::descontar((int) $sesion['id'], $items);
 
+            // Un insumo o producto se dio de baja después de cargarlo en la consulta: hay que quitarlo.
+            if ($respuesta['codigo'] === 409 && ($respuesta['datos']['motivo'] ?? null) === 'DADO_DE_BAJA') {
+                Response::json([
+                    'error' => 'Hay insumos o productos dados de baja en la consulta. Quitalos e intentá de nuevo.',
+                    'motivo' => 'DADO_DE_BAJA',
+                    'items' => $respuesta['datos']['items'] ?? []
+                ], 409);
+                return;
+            }
+
             if ($respuesta['codigo'] === 409) {
                 Response::json([
                     'error' => 'Stock insuficiente',
