@@ -88,7 +88,7 @@ el veterinario del turno es el de la sesión.
 Cuerpo: `{"mascota_id": 101, "fecha": "2026-11-10", "hora": "10:30", "motivo": "CONSULTA"}`.
 `motivo`: `CONSULTA`, `VACUNACION` o `CHEQUEO_ADOPCION`. El turno queda `PROGRAMADO`.
 - 201: `{"turno": { ... }}`
-- 400: un error por campo (`mascota_id` no entero, fecha inválida o anterior a hoy, hora que no es `HH:MM`, motivo inválido).
+- 400: un error por campo (`mascota_id` no entero; fecha inválida, anterior a hoy o de más de un año adelante; hora que no es `HH:MM` o fuera del horario de atención, de 08:00 a 20:00; motivo inválido). El último turno puede empezar a las 19:59.
 - 404: la mascota no existe o está dada de baja.
 - 409: el veterinario ya tiene un turno a esa hora (los cancelados no cuentan). Viene con `campos.hora`.
 

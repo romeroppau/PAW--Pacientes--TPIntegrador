@@ -58,4 +58,12 @@ class ValidadorConsultaTest extends TestCase
         $this->assertCount(1, ValidadorConsulta::validarParaFinalizar(['diagnostico' => 'Otitis', 'valor_base' => null]));
         $this->assertSame([], ValidadorConsulta::validarParaFinalizar(['diagnostico' => 'Otitis', 'valor_base' => '0.00']));
     }
+
+    public function testFinalizarRechazaUnTotalQueNoEntraEnLaFactura(): void
+    {
+        $consulta = ['diagnostico' => 'Otitis', 'valor_base' => '99999999.99'];
+
+        $this->assertSame([], ValidadorConsulta::validarParaFinalizar($consulta + ['total' => '99999999.99']));
+        $this->assertCount(1, ValidadorConsulta::validarParaFinalizar($consulta + ['total' => '100000149.99']));
+    }
 }

@@ -87,7 +87,9 @@ Respuestas:
 - Repetir la llamada (doble clic) sobre una consulta ya finalizada: 200 con la misma factura, sin descontar de nuevo.
 - 400: falta el diagnóstico.
 - 404: no existe.
+- 400 también si el total (valor base + insumos + productos) supera 99.999.999,99. No se descuenta nada.
 - 409 por stock: `{"error": "Stock insuficiente", "items": [{"tipo": "INSUMO", "id": 3, "stock": 0}]}`. No se finaliza ni se descuenta nada.
+- 409 por ítem dado de baja: `{"error": "…", "motivo": "DADO_DE_BAJA", "items": [{"tipo": "INSUMO", "id": 3}]}`. Un insumo o producto se dio de baja después de cargarlo: hay que quitarlo. No se finaliza ni se descuenta nada.
 - 409 por ítem inexistente: Inventario no encontró un insumo o producto de la consulta (respondió 404). No se finaliza nada; hay que quitar el ítem y reintentar.
 - 502: Inventario no responde o rechaza el pedido (por ejemplo, token interno inválido). La consulta sigue `ABIERTA`; reintentar es seguro.
 

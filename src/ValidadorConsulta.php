@@ -6,8 +6,9 @@ class ValidadorConsulta
 {
     private const LARGO_MAXIMO_TEXTO = 5000;
 
-    // Máximo de la columna DECIMAL(10,2): 99.999.999,99.
+    // Máximo de las columnas DECIMAL(10,2): 99.999.999,99.
     private const VALOR_BASE_MAXIMO = 99999999.99;
+    private const TOTAL_MAXIMO = 99999999.99;
 
     // Cuerpo de PUT /consultas/{id}: todos los campos son opcionales.
     public static function validarCambios(array $datos): array
@@ -63,7 +64,7 @@ class ValidadorConsulta
     }
 
     // Requisitos para finalizar, sobre la consulta tal como está guardada:
-    // diagnóstico no vacío y valor base cargado.
+    // diagnóstico no vacío, valor base cargado y un total que entre en la factura.
     public static function validarParaFinalizar(array $consulta): array
     {
         $errores = [];
@@ -80,6 +81,12 @@ class ValidadorConsulta
             $errores[] = 'El valor base es obligatorio para finalizar';
         } elseif ((float) $valorBase > self::VALOR_BASE_MAXIMO) {
             $errores[] = 'El valor base no puede superar ' . number_format(self::VALOR_BASE_MAXIMO, 2, ',', '.');
+        }
+
+        // El valor base puede estar dentro del máximo y el total pasarlo al sumar los ítems. Se valida
+        // acá, antes de llamar a Inventario: si fallara al guardar la factura, el stock ya estaría descontado.
+        if ((float) ($consulta['total'] ?? 0) > self::TOTAL_MAXIMO) {
+            $errores[] = 'El total de la consulta no puede superar ' . number_format(self::TOTAL_MAXIMO, 2, ',', '.');
         }
 
         return $errores;
