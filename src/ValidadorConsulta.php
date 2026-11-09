@@ -6,6 +6,9 @@ class ValidadorConsulta
 {
     private const LARGO_MAXIMO_TEXTO = 5000;
 
+    // Máximo de la columna DECIMAL(10,2): 99.999.999,99.
+    private const VALOR_BASE_MAXIMO = 99999999.99;
+
     // Cuerpo de PUT /consultas/{id}: todos los campos son opcionales.
     public static function validarCambios(array $datos): array
     {
@@ -26,10 +29,12 @@ class ValidadorConsulta
             }
         }
 
-        // Validar valor_base: si está presente, debe ser un número >= 0.
+        // Validar valor_base: si está presente, debe ser un número entre 0 y el máximo de la columna.
         if (array_key_exists('valor_base', $datos) && $datos['valor_base'] !== null) {
             if (!is_numeric($datos['valor_base']) || (float) $datos['valor_base'] < 0) {
                 $errores[] = 'El valor base debe ser un número mayor o igual a 0';
+            } elseif ((float) $datos['valor_base'] > self::VALOR_BASE_MAXIMO) {
+                $errores[] = 'El valor base no puede superar ' . number_format(self::VALOR_BASE_MAXIMO, 2, ',', '.');
             }
         }
 
@@ -69,10 +74,12 @@ class ValidadorConsulta
             $errores[] = 'El diagnóstico es obligatorio para finalizar';
         }
 
-        // Validar valor_base: debe ser un número >= 0.
+        // Validar valor_base: debe estar presente y ser un número mayor o igual a 0 y menor o igual al máximo.
         $valorBase = $consulta['valor_base'] ?? null;
         if ($valorBase === null || !is_numeric($valorBase) || (float) $valorBase < 0) {
             $errores[] = 'El valor base es obligatorio para finalizar';
+        } elseif ((float) $valorBase > self::VALOR_BASE_MAXIMO) {
+            $errores[] = 'El valor base no puede superar ' . number_format(self::VALOR_BASE_MAXIMO, 2, ',', '.');
         }
 
         return $errores;
