@@ -75,6 +75,43 @@ class TurnoControlador
         Response::json(['turno' => $repositorio->detalle($resultado)], 201);
     }
 
+    // POST /api/pacientes/turnos/{id}/reprogramar — el veterinario cambia la fecha y la hora de un turno
+    // programado (el cliente lo pidió por WhatsApp). La mascota y el motivo no cambian.
+    public static function reprogramar(array $parametros): void
+    {
+        $sesion = Auth::requerirRol(['VETERINARIO']);
+        Auth::verificarCsrf($sesion);
+
+        $id = ParametroRuta::entero($parametros, 'id');
+        if ($id === null) {
+            Response::error(self::TURNO_NO_ENCONTRADO, 404);
+            return;
+        }
+
+        [$datos, $errores] = ValidadorTurno::validarReprogramacion(Request::json(), date('Y-m-d'));
+
+        if ($errores !== []) {
+            Response::error('Revisá la fecha y la hora', 400, $errores);
+            return;
+        }
+
+        $repositorio = self::repositorio();
+
+        switch ($repositorio->reprogramar($id, $datos['fecha'], $datos['hora'])) {
+            case 'ok':
+                Response::json(['turno' => $repositorio->detalle($id)]);
+                return;
+            case 'inexistente':
+                Response::error(self::TURNO_NO_ENCONTRADO, 404);
+                return;
+            case 'ocupado':
+                Response::error('Ya hay un turno a esa hora', 409, ['hora' => 'Ya tenés un turno a esa hora']);
+                return;
+            default:
+                Response::error('Solo se puede reprogramar un turno programado', 409);
+        }
+    }
+
     // ---------- Ayudas ----------
 
     private static function cambiarEstado(array $parametros, string $estado, ?string $hastaFecha): void

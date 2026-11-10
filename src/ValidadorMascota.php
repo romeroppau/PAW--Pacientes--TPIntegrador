@@ -66,6 +66,21 @@ class ValidadorMascota
             $limpios['peso_kg'] = number_format((float) $peso, 2, '.', '');
         }
 
+        // Foto: opcional. Si no viene, no cambia; null la borra; un data URL la reemplaza
+        // (PNG, JPG o WEBP de hasta 1 MB, revisando el contenido real del archivo).
+        if (array_key_exists('foto', $datos)) {
+            if ($datos['foto'] === null) {
+                $limpios['foto'] = null;
+            } else {
+                $foto = Imagen::desdeDataUrl($datos['foto']);
+                if (is_string($foto)) {
+                    $errores['foto'] = $foto;
+                } else {
+                    $limpios['foto'] = $foto;   // [bytes, tipo]
+                }
+            }
+        }
+
         return [$limpios, $errores];
     }
 

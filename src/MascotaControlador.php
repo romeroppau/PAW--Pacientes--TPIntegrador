@@ -1,6 +1,6 @@
 <?php
 
-// Los endpoints de lectura de mascotas (contrato en docs/api/contrato-mascotas-turnos.md).
+// Los endpoints de mascotas (contrato en docs/api/contrato-mascotas-turnos.md).
 // Los métodos son static para conectarlos al router así: [MascotaControlador::class, 'ver'].
 class MascotaControlador
 {
@@ -43,6 +43,33 @@ class MascotaControlador
         }
 
         Response::json($mascota);
+    }
+
+    // GET /api/pacientes/mascotas/{id}/foto — la imagen, para usarla directo en un <img>.
+    // Las mismas reglas que ver(): el cliente solo ve las fotos de sus mascotas.
+    public static function foto(array $parametros): void
+    {
+        $sesion = Auth::requerirRol(['VETERINARIO', 'CLIENTE']);
+        $repositorio = self::repositorio();
+
+        $id = ParametroRuta::entero($parametros, 'id');
+        $mascota = $id === null ? null : $repositorio->detalle($id, date('Y-m-d'));
+        $foto = $mascota === null ? null : $repositorio->foto($id);
+
+        if (
+            $foto === null || !in_array($foto[1], Imagen::TIPOS, true)
+            || ($sesion['rol'] === 'CLIENTE' && $mascota['duenio']['id'] !== (int) $sesion['id'])
+        ) {
+            Response::error('Foto no encontrada', 404);
+            return;
+        }
+
+        // El tipo sale de la lista fija (Imagen::TIPOS), nunca de lo que se guardó sin revisar.
+        // nosniff: el navegador no intenta adivinar otro tipo. private: no la guarda ningún proxy.
+        header('Content-Type: ' . $foto[1]);
+        header('X-Content-Type-Options: nosniff');
+        header('Cache-Control: private, max-age=300');
+        echo $foto[0];
     }
 
     // POST /api/pacientes/mascotas — el cliente da de alta una mascota suya (el dueño sale de la sesión).

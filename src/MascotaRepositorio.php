@@ -1,6 +1,6 @@
 <?php
 
-// Acceso a la base de las mascotas (lectura). Todas las consultas SQL usan parámetros.
+// Acceso a la base de las mascotas. Todas las consultas SQL usan parámetros.
 class MascotaRepositorio
 {
     // Cada mascota con su dueño y la edad en meses al día $hoy (el primer parámetro de cada consulta).
@@ -51,10 +51,13 @@ class MascotaRepositorio
         $this->db->beginTransaction();
 
         try {
+            [$foto, $fotoTipo] = $datos['foto'] ?? [null, null];
             $this->db->prepare(
-                'INSERT INTO mascota (duenio_id, nombre, especie, raza, fecha_nacimiento, peso_kg) VALUES (?, ?, ?, ?, ?, ?)'
+                'INSERT INTO mascota (duenio_id, nombre, especie, raza, fecha_nacimiento, peso_kg, foto, foto_tipo)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
             )->execute([
-                $duenioId, $datos['nombre'], $datos['especie'], $datos['raza'], $datos['fecha_nacimiento'], $datos['peso_kg']
+                $duenioId, $datos['nombre'], $datos['especie'], $datos['raza'], $datos['fecha_nacimiento'], $datos['peso_kg'],
+                $foto, $fotoTipo
             ]);
             $id = (int) $this->db->lastInsertId();
 
@@ -78,7 +81,23 @@ class MascotaRepositorio
             $datos['nombre'], $datos['especie'], $datos['raza'], $datos['fecha_nacimiento'], $datos['peso_kg'], $id
         ]);
 
+        // La foto cambia solo si vino en el pedido (null la borra).
+        if (array_key_exists('foto', $datos)) {
+            [$foto, $fotoTipo] = $datos['foto'] ?? [null, null];
+            $this->db->prepare('UPDATE mascota SET foto = ?, foto_tipo = ? WHERE id = ?')->execute([$foto, $fotoTipo, $id]);
+        }
+
         (new CalendarioSanitario($this->db))->generarPara($id, $hoy);
+    }
+
+    // La foto de una mascota: [bytes, tipo], o null si no tiene.
+    public function foto(int $id): ?array
+    {
+        $sentencia = $this->db->prepare('SELECT foto, foto_tipo FROM mascota WHERE id = ? AND foto IS NOT NULL');
+        $sentencia->execute([$id]);
+        $fila = $sentencia->fetch();
+
+        return $fila === false ? null : [$fila['foto'], $fila['foto_tipo']];
     }
 
     // Baja lógica: la ficha, el historial y el calendario se conservan.

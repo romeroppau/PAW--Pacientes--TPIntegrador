@@ -7,3 +7,4 @@ $router->get('/api/pacientes/turnos', [TurnoControlador::class, 'listar']);
 $router->post('/api/pacientes/turnos/{id}/cancelar', [TurnoControlador::class, 'cancelar']);
 $router->post('/api/pacientes/turnos/{id}/ausente', [TurnoControlador::class, 'marcarAusente']);
 $router->post('/api/pacientes/turnos', [TurnoControlador::class, 'crear']);
+$router->post('/api/pacientes/turnos/{id}/reprogramar', [TurnoControlador::class, 'reprogramar']);
