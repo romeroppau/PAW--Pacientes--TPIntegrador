@@ -69,6 +69,40 @@ class TurnoRepositorio
         return (int) $this->db->lastInsertId();
     }
 
+    // Cambia la fecha y la hora de un turno PROGRAMADO. Devuelve 'ok', 'inexistente', 'no_programado'
+    // u 'ocupado' (el veterinario ya tiene otro turno a esa hora; los cancelados no cuentan).
+    // Igual que cambiarEstado, el UPDATE comprueba el estado en la misma sentencia.
+    public function reprogramar(int $id, string $fecha, string $hora): string
+    {
+        try {
+            $sentencia = $this->db->prepare(
+                "UPDATE turno SET fecha = ?, hora = ? WHERE id = ? AND estado = 'PROGRAMADO'"
+            );
+            $sentencia->execute([$fecha, $hora, $id]);
+        } catch (PDOException $error) {
+            // 1062: choca con uq_turno_veterinario_horario (migración 004).
+            if (($error->errorInfo[1] ?? null) === 1062) {
+                return 'ocupado';
+            }
+            throw $error;
+        }
+
+        if ($sentencia->rowCount() === 1) {
+            return 'ok';
+        }
+
+        // No cambió ninguna fila: no existe, no está programado, o ya tenía esa fecha y hora.
+        $sentencia = $this->db->prepare('SELECT estado FROM turno WHERE id = ?');
+        $sentencia->execute([$id]);
+        $actual = $sentencia->fetchColumn();
+
+        if ($actual === false) {
+            return 'inexistente';
+        }
+
+        return $actual === 'PROGRAMADO' ? 'ok' : 'no_programado';
+    }
+
     // Pasa un turno PROGRAMADO a $estado (CANCELADO o AUSENTE). Con $hastaFecha, solo si el turno es de
     // ese día o anterior. Devuelve 'ok', 'inexistente', 'no_programado' o 'futuro'.
     // El UPDATE comprueba el estado en la misma sentencia: si dos pedidos llegan juntos, cambia uno solo.

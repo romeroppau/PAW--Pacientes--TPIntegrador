@@ -5,6 +5,7 @@
 
 $router->get('/api/pacientes/mascotas', [MascotaControlador::class, 'listar']);
 $router->get('/api/pacientes/mascotas/{id}', [MascotaControlador::class, 'ver']);
+$router->get('/api/pacientes/mascotas/{id}/foto', [MascotaControlador::class, 'foto']);
 $router->post('/api/pacientes/mascotas', [MascotaControlador::class, 'crear']);
 $router->put('/api/pacientes/mascotas/{id}', [MascotaControlador::class, 'actualizar']);
 $router->delete('/api/pacientes/mascotas/{id}', [MascotaControlador::class, 'darDeBaja']);

@@ -76,4 +76,19 @@ class ValidadorTurnoTest extends TestCase
 
         $this->assertCount(4, $errores);
     }
+
+    public function testReprogramarSoloPideFechaYHora(): void
+    {
+        [$limpios, $errores] = ValidadorTurno::validarReprogramacion(['fecha' => self::HOY, 'hora' => '19:30'], self::HOY);
+
+        $this->assertSame([], $errores);
+        $this->assertSame(['fecha' => self::HOY, 'hora' => '19:30'], $limpios);
+    }
+
+    public function testReprogramarUsaLasMismasReglasQueElAlta(): void
+    {
+        [, $errores] = ValidadorTurno::validarReprogramacion(['fecha' => '2026-11-05', 'hora' => '20:00'], self::HOY);
+
+        $this->assertSame(['fecha', 'hora'], array_keys($errores));
+    }
 }

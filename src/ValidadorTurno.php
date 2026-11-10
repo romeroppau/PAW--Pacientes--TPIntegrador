@@ -1,6 +1,6 @@
 <?php
 
-// Validación del alta de un turno. No usa la base de datos.
+// Validación del alta y de la reprogramación de un turno. No usa la base de datos.
 // Devuelve [$limpios, $errores], con un error por campo (igual que ValidadorMascota).
 class ValidadorTurno
 {
@@ -21,6 +21,30 @@ class ValidadorTurno
             $limpios['mascota_id'] = $mascota;
         }
 
+        self::validarFechaYHora($datos, $hoy, $limpios, $errores);
+
+        $motivo = $datos['motivo'] ?? null;
+        if (!is_string($motivo) || !in_array($motivo, self::MOTIVOS, true)) {
+            $errores['motivo'] = 'Elegí el motivo';
+        } else {
+            $limpios['motivo'] = $motivo;
+        }
+
+        return [$limpios, $errores];
+    }
+
+    // Reprogramar: solo cambian la fecha y la hora, con las mismas reglas del alta.
+    public static function validarReprogramacion(array $datos, string $hoy): array
+    {
+        $limpios = [];
+        $errores = [];
+        self::validarFechaYHora($datos, $hoy, $limpios, $errores);
+
+        return [$limpios, $errores];
+    }
+
+    private static function validarFechaYHora(array $datos, string $hoy, array &$limpios, array &$errores): void
+    {
         // Fecha: de hoy hasta un año adelante.
         $fecha = $datos['fecha'] ?? null;
         if (ValidadorFiltros::validarFecha($fecha) !== []) {
@@ -42,14 +66,5 @@ class ValidadorTurno
         } else {
             $limpios['hora'] = $hora;
         }
-
-        $motivo = $datos['motivo'] ?? null;
-        if (!is_string($motivo) || !in_array($motivo, self::MOTIVOS, true)) {
-            $errores['motivo'] = 'Elegí el motivo';
-        } else {
-            $limpios['motivo'] = $motivo;
-        }
-
-        return [$limpios, $errores];
     }
 }

@@ -67,7 +67,7 @@ mascotas. Etapa 3: el alta de turnos (veterinario) y el alta, la edición y la b
   "duenio": { "id": 102, "nombre": "Cliente de Prueba", "telefono": "1155550102" }
 }
 ```
-`raza`, `fecha_nacimiento`, `edad_meses` y `peso_kg` pueden ser `null`. La foto se pide aparte (etapa 3).
+`raza`, `fecha_nacimiento`, `edad_meses` y `peso_kg` pueden ser `null`. La foto no viaja en la mascota: `tiene_foto` dice si tiene, y se pide aparte (ver "Foto de una mascota").
 
 ## Listar mascotas
 `GET /api/pacientes/mascotas` — Veterinario o cliente. Solo las activas, ordenadas por nombre (hasta 100).
@@ -81,6 +81,11 @@ mascotas. Etapa 3: el alta de turnos (veterinario) y el alta, la edición y la b
 - 200: la mascota (también si está dada de baja: su ficha y su historial se conservan).
 - 404: la mascota no existe o es de otro cliente.
 
+## Foto de una mascota (Entrega 5)
+`GET /api/pacientes/mascotas/{id}/foto` — Veterinario (cualquiera) o cliente (solo las suyas). Se usa directo en un `<img src>`.
+- 200: la imagen, con su `Content-Type` (`image/png`, `image/jpeg` o `image/webp`) y `X-Content-Type-Options: nosniff`.
+- 404 (JSON): la mascota no existe, es de otro cliente o no tiene foto.
+
 ## Cargar un turno (etapa 3)
 `POST /api/pacientes/turnos` — Veterinario. Los turnos se coordinan por WhatsApp y los carga el veterinario;
 el veterinario del turno es el de la sesión.
@@ -92,18 +97,29 @@ Cuerpo: `{"mascota_id": 101, "fecha": "2026-11-10", "hora": "10:30", "motivo": "
 - 404: la mascota no existe o está dada de baja.
 - 409: el veterinario ya tiene un turno a esa hora (los cancelados no cuentan). Viene con `campos.hora`.
 
+## Reprogramar un turno (Entrega 5)
+`POST /api/pacientes/turnos/{id}/reprogramar` — Veterinario, con CSRF. Cambia la fecha y la hora de un turno que el cliente pidió mover por WhatsApp. La mascota y el motivo no cambian.
+
+Cuerpo: `{"fecha": "2026-11-12", "hora": "17:30"}`. Mismas reglas de fecha y hora que el alta.
+- 200: `{"turno": { ... }}` con la fecha y la hora nuevas. Si son las mismas que tenía, también 200.
+- 400: un error por campo (`fecha`, `hora`).
+- 404: el turno no existe.
+- 409: el turno no está `PROGRAMADO`, o el veterinario ya tiene otro turno a esa hora (con `campos.hora`). El horario anterior queda libre al reprogramar.
+
 ## Dar de alta una mascota (etapa 3)
 `POST /api/pacientes/mascotas` — Cliente. El dueño es el cliente de la sesión.
 
 Cuerpo: `{"nombre": "Firulais", "especie": "PERRO", "raza": "Mestizo", "fecha_nacimiento": "2023-11-05", "peso_kg": 18.5}`.
 - `nombre` (hasta 80) y `especie` (`PERRO`, `GATO` u `OTRO`) son obligatorios.
 - `raza` (hasta 80), `fecha_nacimiento` (no futura ni de hace más de 40 años) y `peso_kg` (mayor a 0, hasta 999.99) son opcionales.
+- `foto` (Entrega 5), opcional: data URL (`data:image/png;base64,...`) de una imagen PNG, JPG o WEBP de hasta 1 MB. Se revisa el contenido real del archivo, no solo lo que dice el texto.
 - Al crearla se arma su **calendario sanitario** (`CalendarioSanitario::generarPara`), en la misma transacción. Sin fecha de nacimiento, el calendario queda vacío.
 - 201: la mascota.
 - 400: un error por campo.
 
 ## Editar una mascota (etapa 3)
 `PUT /api/pacientes/mascotas/{id}` — Cliente, solo las suyas. Mismo cuerpo y mismas reglas que el alta (se mandan todos los campos).
+- `foto`: si no viene, la foto no cambia; `null` la borra; un data URL la reemplaza.
 - Si cambia la especie o la fecha de nacimiento, el calendario suma los ítems del plan que le falten; no borra los que ya tenía.
 - 200: la mascota actualizada.
 - 400: un error por campo.
