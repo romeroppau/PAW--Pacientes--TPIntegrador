@@ -90,6 +90,7 @@ Respuestas:
 - 400 también si el total (valor base + insumos + productos) supera 99.999.999,99. No se descuenta nada.
 - 409 por stock: `{"error": "Stock insuficiente", "items": [{"tipo": "INSUMO", "id": 3, "stock": 0}]}`. No se finaliza ni se descuenta nada.
 - 409 por ítem dado de baja: `{"error": "…", "motivo": "DADO_DE_BAJA", "items": [{"tipo": "INSUMO", "id": 3}]}`. Un insumo o producto se dio de baja después de cargarlo: hay que quitarlo. No se finaliza ni se descuenta nada.
+- 409 por cantidad cambiada entre intentos: `{"error": "…", "motivo": "OPERACION_DISTINTA", "items": [{"tipo": "INSUMO", "id": 3, "cantidad_aplicada": 2}]}`. Un intento anterior ya descontó ese ítem con otra cantidad (por ejemplo, se perdió la respuesta y después se cambió la cantidad). No se finaliza ni se descuenta nada; hay que volver a la cantidad descontada.
 - 409 por ítem inexistente: Inventario no encontró un insumo o producto de la consulta (respondió 404). No se finaliza nada; hay que quitar el ítem y reintentar.
 - 502: Inventario no responde o rechaza el pedido (por ejemplo, token interno inválido). La consulta sigue `ABIERTA`; reintentar es seguro.
 
@@ -98,9 +99,25 @@ Si el motivo del turno es `VACUNACION`, dentro de la misma transacción se marca
 `finalizada_en` y la `fecha` de la factura están en hora de Argentina.
 
 ## Ver factura
-`GET /api/pacientes/consultas/{id}/factura` — Veterinario.
-- 200: la factura (mismos campos que en finalizar).
-- 404: no existe o la consulta todavía no está finalizada.
+`GET /api/pacientes/consultas/{id}/factura` — Veterinario o cliente. El cliente solo ve las facturas de sus mascotas.
+- 200: la factura (mismos campos que en finalizar) y, además, el detalle para mostrarla:
+
+```json
+{
+  "numero": "C-000102", "subtotal_base": "8000.00", "subtotal_insumos": "301.00",
+  "subtotal_productos": "15999.90", "total": "24300.90", "estado": "PENDIENTE_PAGO",
+  "fecha": "2026-11-10 10:42:00",
+  "consulta": {
+    "id": 101, "fecha": "2026-11-10", "hora": "10:00", "motivo": "CONSULTA",
+    "diagnostico": "Otitis leve", "valor_base": "8000.00",
+    "insumos":   [ { "id": 1, "insumo_id": 3, "nombre": "Gasas", "cantidad": 2, "costo_unitario": "150.50" } ],
+    "productos": [ { "id": 1, "producto_id": 7, "nombre": "Alimento", "cantidad": 1, "precio_unitario": "15999.90" } ]
+  },
+  "mascota": { "id": 3, "nombre": "Firulais" },
+  "cliente": { "id": 5, "nombre": "Carla Gómez" }
+}
+```
+- 404: no existe, la consulta todavía no está finalizada o (para un cliente) la mascota no es suya.
 
 ## Historial clínico
 `GET /api/pacientes/mascotas/{id}/historial` — Cliente (solo sus mascotas) o Veterinario (cualquiera). Los rescatistas reciben 403.

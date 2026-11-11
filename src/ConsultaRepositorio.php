@@ -261,6 +261,42 @@ class ConsultaRepositorio
         );
     }
 
+    // La factura con lo que hace falta para mostrarla: la consulta (fecha del turno, diagnóstico y
+    // valor base), la mascota, el dueño y los ítems. null si la consulta no existe o no está finalizada.
+    public function facturaConDetalle(int $consultaId): ?array
+    {
+        $factura = $this->factura($consultaId);
+        if ($factura === null) {
+            return null;
+        }
+
+        $datos = $this->fila(
+            'SELECT c.id, c.diagnostico, c.valor_base, t.fecha, t.hora, t.motivo,
+                    m.id AS mascota_id, m.nombre AS mascota, u.id AS cliente_id, u.nombre AS cliente
+             FROM consulta c
+             JOIN turno t ON t.id = c.turno_id
+             JOIN mascota m ON m.id = t.mascota_id
+             JOIN usuario u ON u.id = m.duenio_id
+             WHERE c.id = ?',
+            [$consultaId]
+        );
+
+        $factura['consulta'] = [
+            'id' => (int) $datos['id'],
+            'fecha' => $datos['fecha'],
+            'hora' => substr((string) $datos['hora'], 0, 5),
+            'motivo' => $datos['motivo'],
+            'diagnostico' => $datos['diagnostico'],
+            'valor_base' => $datos['valor_base'],
+            'insumos' => $this->items($consultaId, 'insumos'),
+            'productos' => $this->items($consultaId, 'productos'),
+        ];
+        $factura['mascota'] = ['id' => (int) $datos['mascota_id'], 'nombre' => $datos['mascota']];
+        $factura['cliente'] = ['id' => (int) $datos['cliente_id'], 'nombre' => $datos['cliente']];
+
+        return $factura;
+    }
+
     // Id del dueño de la mascota, o null si la mascota no existe.
     public function duenioDeMascota(int $mascotaId): ?int
     {
