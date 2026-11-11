@@ -186,6 +186,18 @@ class ConsultaControlador
                 return;
             }
 
+            // Un intento anterior ya descontó un ítem con otra cantidad (se cambió la cantidad entre
+            // un intento y otro). Inventario no descuenta nada: hay que volver a la cantidad descontada.
+            if ($respuesta['codigo'] === 409 && ($respuesta['datos']['motivo'] ?? null) === 'OPERACION_DISTINTA') {
+                Response::json([
+                    'error' => 'Un intento anterior de finalizar ya descontó del stock otra cantidad de algunos ítems. '
+                        . 'Volvé a dejar la cantidad que se descontó e intentá de nuevo.',
+                    'motivo' => 'OPERACION_DISTINTA',
+                    'items' => $respuesta['datos']['items'] ?? []
+                ], 409);
+                return;
+            }
+
             if ($respuesta['codigo'] === 409) {
                 Response::json([
                     'error' => 'Stock insuficiente',
@@ -215,12 +227,17 @@ class ConsultaControlador
     }
 
     // GET /api/pacientes/consultas/{id}/factura
+    // El cliente ve solo las facturas de sus mascotas: la de otro da 404, igual que si no existiera.
     public static function factura(array $parametros): void
     {
-        self::veterinario();
+        $sesion = Auth::requerirRol(['CLIENTE', 'VETERINARIO']);
 
         $id = self::entero($parametros, 'id');
-        $factura = $id === null ? null : self::repositorio()->factura($id);
+        $factura = $id === null ? null : self::repositorio()->facturaConDetalle($id);
+
+        if ($factura !== null && $sesion['rol'] === 'CLIENTE' && $factura['cliente']['id'] !== (int) $sesion['id']) {
+            $factura = null;
+        }
 
         // Si la consulta no existe o no está finalizada, se devuelve 404. No se devuelve 409 porque el cliente no puede finalizarla.
         if ($factura === null) {
