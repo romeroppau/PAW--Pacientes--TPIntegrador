@@ -6,7 +6,12 @@ Etapa 1 (lo que necesita la consulta): la agenda, el cambio de estado de los tur
 mascotas. Etapa 3: el alta de turnos (veterinario) y el alta, la edición y la baja de mascotas (cliente).
 
 ## Reglas generales
-- Sin sesión: 401. Con una sesión de otro rol: 403. Los rescatistas reciben 403 en todas estas rutas.
+- Sin sesión: 401. Con una sesión de otro rol: 403.
+- **Rescatistas (Entrega 5):** usan las rutas de mascotas igual que un cliente, para los animales que
+  tienen a cargo mientras están en adopción (listar, ver, foto, alta, edición y baja; solo las suyas).
+  Los turnos, el historial y el calendario siguen siendo de la veterinaria y del cliente: el
+  rescatista recibe 403. Al completar la adopción, la mascota pasa al adoptante con su ficha
+  (`POST /internal/mascotas/{id}/transferir`, al final de este documento).
 - POST, PUT y DELETE exigen el token CSRF: sin él, 403.
 - Los datos inválidos dan 400 con un error por campo: `{"error": "Revisá los datos…", "campos": {"nombre": "El nombre es obligatorio"}}`.
 - El id del usuario sale de la sesión, nunca del pedido.
@@ -70,19 +75,19 @@ mascotas. Etapa 3: el alta de turnos (veterinario) y el alta, la edición y la b
 `raza`, `fecha_nacimiento`, `edad_meses` y `peso_kg` pueden ser `null`. La foto no viaja en la mascota: `tiene_foto` dice si tiene, y se pide aparte (ver "Foto de una mascota").
 
 ## Listar mascotas
-`GET /api/pacientes/mascotas` — Veterinario o cliente. Solo las activas, ordenadas por nombre (hasta 100).
+`GET /api/pacientes/mascotas` — Veterinario, cliente o rescatista. Solo las activas, ordenadas por nombre (hasta 100).
 - **Veterinario:** todas. Parámetro opcional `buscar`: parte del nombre de la mascota o del dueño.
-- **Cliente:** las suyas. Ignora `buscar`.
+- **Cliente o rescatista:** las suyas. Ignora `buscar`.
 - 200: `{"mascotas": [ ... ]}`
 - 400: `buscar` tiene más de 80 caracteres.
 
 ## Ver una mascota
-`GET /api/pacientes/mascotas/{id}` — Veterinario (cualquiera) o cliente (solo las suyas).
+`GET /api/pacientes/mascotas/{id}` — Veterinario (cualquiera), cliente o rescatista (solo las suyas).
 - 200: la mascota (también si está dada de baja: su ficha y su historial se conservan).
 - 404: la mascota no existe o es de otro cliente.
 
 ## Foto de una mascota (Entrega 5)
-`GET /api/pacientes/mascotas/{id}/foto` — Veterinario (cualquiera) o cliente (solo las suyas). Se usa directo en un `<img src>`.
+`GET /api/pacientes/mascotas/{id}/foto` — Veterinario (cualquiera), cliente o rescatista (solo las suyas). Se usa directo en un `<img src>`.
 - 200: la imagen, con su `Content-Type` (`image/png`, `image/jpeg` o `image/webp`) y `X-Content-Type-Options: nosniff`.
 - 404 (JSON): la mascota no existe, es de otro cliente o no tiene foto.
 
@@ -107,7 +112,7 @@ Cuerpo: `{"fecha": "2026-11-12", "hora": "17:30"}`. Mismas reglas de fecha y hor
 - 409: el turno no está `PROGRAMADO`, o el veterinario ya tiene otro turno a esa hora (con `campos.hora`). El horario anterior queda libre al reprogramar.
 
 ## Dar de alta una mascota (etapa 3)
-`POST /api/pacientes/mascotas` — Cliente. El dueño es el cliente de la sesión.
+`POST /api/pacientes/mascotas` — Cliente o rescatista. El dueño es el usuario de la sesión.
 
 Cuerpo: `{"nombre": "Firulais", "especie": "PERRO", "raza": "Mestizo", "fecha_nacimiento": "2023-11-05", "peso_kg": 18.5}`.
 - `nombre` (hasta 80) y `especie` (`PERRO`, `GATO` u `OTRO`) son obligatorios.
@@ -118,7 +123,7 @@ Cuerpo: `{"nombre": "Firulais", "especie": "PERRO", "raza": "Mestizo", "fecha_na
 - 400: un error por campo.
 
 ## Editar una mascota (etapa 3)
-`PUT /api/pacientes/mascotas/{id}` — Cliente, solo las suyas. Mismo cuerpo y mismas reglas que el alta (se mandan todos los campos).
+`PUT /api/pacientes/mascotas/{id}` — Cliente o rescatista, solo las suyas. Mismo cuerpo y mismas reglas que el alta (se mandan todos los campos).
 - `foto`: si no viene, la foto no cambia; `null` la borra; un data URL la reemplaza.
 - Si cambia la especie o la fecha de nacimiento, el calendario suma los ítems del plan que le falten; no borra los que ya tenía.
 - 200: la mascota actualizada.
@@ -127,7 +132,27 @@ Cuerpo: `{"nombre": "Firulais", "especie": "PERRO", "raza": "Mestizo", "fecha_na
 - 409: está dada de baja.
 
 ## Dar de baja una mascota (etapa 3)
-`DELETE /api/pacientes/mascotas/{id}` — Cliente, solo las suyas. Baja lógica: su ficha, su historial y su calendario se conservan.
+`DELETE /api/pacientes/mascotas/{id}` — Cliente o rescatista, solo las suyas. Baja lógica: su ficha, su historial y su calendario se conservan.
 - 204: sin cuerpo.
 - 404: no existe o es de otro cliente.
 - 409: ya está dada de baja, o tiene turnos programados de hoy en adelante (primero los cancela el veterinario).
+
+## Transferir una mascota al adoptante (interno, Entrega 5)
+`POST http://127.0.0.1:9003/internal/mascotas/{id}/transferir` — **De proceso a proceso**: lo llama
+Adopciones al completar una adopción. Nginx bloquea `/internal/` desde afuera (404) y además se exige
+el header `X-Servicio-Token: <INTERNAL_TOKEN>`, igual que el descuento de stock de Inventario.
+
+Cuerpo: `{"duenio_actual_id": 104, "nuevo_duenio_id": 103}` (enteros de verdad, distintos, mayores que 0).
+Solo cambia el dueño: la ficha, los turnos, las consultas, las facturas y el calendario pasan con la mascota.
+
+| Código | Cuerpo | Cuándo |
+|---|---|---|
+| 200 | `{"transferida": true}` | Se pasó la mascota al nuevo dueño |
+| 200 | `{"transferida": false}` | Ya era del nuevo dueño (un reintento): no cambia nada |
+| 400 | `{"error": "Datos de solicitud inválidos"}` | Cuerpo mal formado, o el nuevo dueño no es un cliente |
+| 401 | `{"error": "No autorizado"}` | Falta el token o no coincide |
+| 404 | `{"error": "Mascota no encontrada"}` | No existe o está dada de baja |
+| 409 | `{"error": "La mascota no es del dueño indicado", "motivo": "DUENIO_DISTINTO"}` | No es ni del dueño actual ni del nuevo |
+
+Reintentar es seguro sin `id_operacion`: el estado de la mascota ya dice si la transferencia se hizo.
+El circuito completo está en `docs/api/contrato-adopciones.md` del repo Adopciones.
