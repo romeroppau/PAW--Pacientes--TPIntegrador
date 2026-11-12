@@ -1,18 +1,20 @@
 <?php
 
 // Los endpoints de mascotas (contrato en docs/api/contrato-mascotas-turnos.md).
+// "Dueño" es el cliente o, mientras la mascota está en adopción, el rescatista que la tiene a cargo
+// (Entrega 5): los dos usan las mismas rutas y solo ven y tocan sus mascotas.
 // Los métodos son static para conectarlos al router así: [MascotaControlador::class, 'ver'].
 class MascotaControlador
 {
     // GET /api/pacientes/mascotas
-    // Veterinario: todas las activas (?buscar= por nombre de la mascota o del dueño). Cliente: las suyas.
+    // Veterinario: todas las activas (?buscar= por nombre de la mascota o del dueño). Cliente o rescatista: las suyas.
     public static function listar(): void
     {
-        // Se exige sesión de veterinario o cliente, pero no CSRF porque es GET.
-        $sesion = Auth::requerirRol(['VETERINARIO', 'CLIENTE']);
+        // Se exige sesión, pero no CSRF porque es GET.
+        $sesion = Auth::requerirRol(self::ROLES_LECTURA);
         $repositorio = self::repositorio();
 
-        if ($sesion['rol'] === 'CLIENTE') {
+        if ($sesion['rol'] !== 'VETERINARIO') {
             Response::json(['mascotas' => $repositorio->listar(date('Y-m-d'), (int) $sesion['id'])]);
             return;
         }
@@ -29,15 +31,15 @@ class MascotaControlador
     }
 
     // GET /api/pacientes/mascotas/{id}
-    // El cliente solo ve sus mascotas; si pide la de otro recibe 404, igual que si no existiera.
+    // El dueño solo ve sus mascotas; si pide la de otro recibe 404, igual que si no existiera.
     public static function ver(array $parametros): void
     {
-        $sesion = Auth::requerirRol(['VETERINARIO', 'CLIENTE']);
+        $sesion = Auth::requerirRol(self::ROLES_LECTURA);
 
         $id = ParametroRuta::entero($parametros, 'id');
         $mascota = $id === null ? null : self::repositorio()->detalle($id, date('Y-m-d'));
 
-        if ($mascota === null || ($sesion['rol'] === 'CLIENTE' && $mascota['duenio']['id'] !== (int) $sesion['id'])) {
+        if ($mascota === null || !self::puedeVer($sesion, $mascota)) {
             Response::error('Mascota no encontrada', 404);
             return;
         }
@@ -46,10 +48,10 @@ class MascotaControlador
     }
 
     // GET /api/pacientes/mascotas/{id}/foto — la imagen, para usarla directo en un <img>.
-    // Las mismas reglas que ver(): el cliente solo ve las fotos de sus mascotas.
+    // Las mismas reglas que ver(): el dueño solo ve las fotos de sus mascotas.
     public static function foto(array $parametros): void
     {
-        $sesion = Auth::requerirRol(['VETERINARIO', 'CLIENTE']);
+        $sesion = Auth::requerirRol(self::ROLES_LECTURA);
         $repositorio = self::repositorio();
 
         $id = ParametroRuta::entero($parametros, 'id');
@@ -58,7 +60,7 @@ class MascotaControlador
 
         if (
             $foto === null || !in_array($foto[1], Imagen::TIPOS, true)
-            || ($sesion['rol'] === 'CLIENTE' && $mascota['duenio']['id'] !== (int) $sesion['id'])
+            || !self::puedeVer($sesion, $mascota)
         ) {
             Response::error('Foto no encontrada', 404);
             return;
@@ -72,11 +74,11 @@ class MascotaControlador
         echo $foto[0];
     }
 
-    // POST /api/pacientes/mascotas — el cliente da de alta una mascota suya (el dueño sale de la sesión).
+    // POST /api/pacientes/mascotas — el cliente o el rescatista da de alta una mascota suya (el dueño sale de la sesión).
     // Al crearla se arma su calendario sanitario.
     public static function crear(): void
     {
-        $sesion = self::cliente();
+        $sesion = self::duenio();
         $hoy = date('Y-m-d');
 
         [$datos, $errores] = ValidadorMascota::validar(Request::json(), $hoy);
@@ -92,10 +94,10 @@ class MascotaControlador
         Response::json($repositorio->detalle($id, $hoy), 201);
     }
 
-    // PUT /api/pacientes/mascotas/{id} — el cliente edita una mascota suya y activa.
+    // PUT /api/pacientes/mascotas/{id} — el dueño edita una mascota suya y activa.
     public static function actualizar(array $parametros): void
     {
-        $sesion = self::cliente();
+        $sesion = self::duenio();
         $hoy = date('Y-m-d');
         $repositorio = self::repositorio();
         $mascota = self::propia($repositorio, $sesion, $parametros, $hoy);
@@ -116,11 +118,11 @@ class MascotaControlador
         Response::json($repositorio->detalle($mascota['id'], $hoy));
     }
 
-    // DELETE /api/pacientes/mascotas/{id} — baja lógica de una mascota del cliente.
+    // DELETE /api/pacientes/mascotas/{id} — baja lógica de una mascota del dueño.
     // Si tiene turnos programados, primero hay que cancelarlos (los cancela el veterinario).
     public static function darDeBaja(array $parametros): void
     {
-        $sesion = self::cliente();
+        $sesion = self::duenio();
         $hoy = date('Y-m-d');
         $repositorio = self::repositorio();
         $mascota = self::propia($repositorio, $sesion, $parametros, $hoy);
@@ -140,17 +142,27 @@ class MascotaControlador
 
     // ---------- Ayudas ----------
 
-    // Exige sesión de cliente y el token CSRF (las altas, ediciones y bajas son POST, PUT y DELETE).
-    private static function cliente(): array
+    // Quién puede leer mascotas. El rescatista, como el cliente, solo las suyas.
+    private const ROLES_LECTURA = ['VETERINARIO', 'CLIENTE', 'RESCATISTA'];
+
+    // El veterinario ve todas; el cliente y el rescatista, solo las suyas.
+    private static function puedeVer(array $sesion, array $mascota): bool
     {
-        $sesion = Auth::requerirRol(['CLIENTE']);
+        return $sesion['rol'] === 'VETERINARIO' || $mascota['duenio']['id'] === (int) $sesion['id'];
+    }
+
+    // Exige sesión de dueño (cliente o rescatista) y el token CSRF (las altas, ediciones y bajas
+    // son POST, PUT y DELETE). El veterinario no carga mascotas: lo hace cada dueño.
+    private static function duenio(): array
+    {
+        $sesion = Auth::requerirRol(['CLIENTE', 'RESCATISTA']);
         Auth::verificarCsrf($sesion);
 
         return $sesion;
     }
 
-    // La mascota activa del {id}, si es del cliente de la sesión. Si no, responde 404 y devuelve null:
-    // la de otro cliente da 404, igual que si no existiera. Una dada de baja ya no se edita (409).
+    // La mascota activa del {id}, si es del dueño de la sesión. Si no, responde 404 y devuelve null:
+    // la de otro dueño da 404, igual que si no existiera. Una dada de baja ya no se edita (409).
     private static function propia(MascotaRepositorio $repositorio, array $sesion, array $parametros, string $hoy): ?array
     {
         $id = ParametroRuta::entero($parametros, 'id');

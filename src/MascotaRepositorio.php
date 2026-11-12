@@ -73,6 +73,51 @@ class MascotaRepositorio
 
     // Cambia los datos de una mascota. Si cambian la especie o la fecha de nacimiento, el calendario
     // suma los ítems del plan que le falten (no borra los que ya tenía).
+    // Pasa la mascota a otro dueño (al completar una adopción, Entrega 5). Devuelve:
+    //   'TRANSFERIDA'     si se cambió el dueño;
+    //   'YA_TRANSFERIDA'  si ya era del nuevo dueño (un reintento: no se cambia nada);
+    //   'NO_EXISTE'       si no existe o está dada de baja;
+    //   'DUENIO_DISTINTO' si no es ni del dueño actual ni del nuevo;
+    //   'NO_ES_CLIENTE'   si el nuevo dueño no es un cliente.
+    // Solo cambia duenio_id: la ficha, los turnos, las consultas y el calendario siguen siendo de la
+    // mascota, así que pasan con ella. La fila se bloquea (FOR UPDATE) para que dos pedidos a la vez
+    // no la pasen dos veces.
+    public function transferir(int $id, int $duenioActualId, int $nuevoDuenioId): string
+    {
+        $rol = $this->db->prepare('SELECT rol FROM usuario WHERE id = ?');
+        $rol->execute([$nuevoDuenioId]);
+
+        if ($rol->fetchColumn() !== 'CLIENTE') {
+            return 'NO_ES_CLIENTE';
+        }
+
+        $this->db->beginTransaction();
+
+        try {
+            $consulta = $this->db->prepare('SELECT duenio_id, activo FROM mascota WHERE id = ? FOR UPDATE');
+            $consulta->execute([$id]);
+            $mascota = $consulta->fetch();
+
+            $resultado = match (true) {
+                $mascota === false || !(bool) $mascota['activo'] => 'NO_EXISTE',
+                (int) $mascota['duenio_id'] === $nuevoDuenioId => 'YA_TRANSFERIDA',
+                (int) $mascota['duenio_id'] !== $duenioActualId => 'DUENIO_DISTINTO',
+                default => 'TRANSFERIDA',
+            };
+
+            if ($resultado === 'TRANSFERIDA') {
+                $this->db->prepare('UPDATE mascota SET duenio_id = ? WHERE id = ?')->execute([$nuevoDuenioId, $id]);
+            }
+
+            $this->db->commit();
+
+            return $resultado;
+        } catch (Throwable $error) {
+            $this->db->rollBack();
+            throw $error;
+        }
+    }
+
     public function actualizar(int $id, array $datos, string $hoy): void
     {
         $this->db->prepare(
