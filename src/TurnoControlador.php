@@ -7,6 +7,14 @@ class TurnoControlador
     private const TURNO_NO_ENCONTRADO = 'Turno no encontrado';
     private const DIAS_HACIA_ATRAS_CLIENTE = 30;
 
+    // GET /api/pacientes/horario — cualquiera con sesión. El horario de atención que configuró la
+    // veterinaria, para los formularios de turnos: {"apertura": "08:00", "cierre": "20:00"}.
+    public static function horario(): void
+    {
+        Auth::requerirRol([]);
+        Response::json(HorarioAtencion::actual());
+    }
+
     // GET /api/pacientes/turnos
     // Veterinario: la agenda de un día (?fecha=, por defecto hoy). Cliente: los turnos de sus mascotas.
     public static function listar(): void
@@ -52,7 +60,7 @@ class TurnoControlador
         $sesion = Auth::requerirRol(['VETERINARIO']);
         Auth::verificarCsrf($sesion);
 
-        [$datos, $errores] = ValidadorTurno::validarAlta(Request::json(), date('Y-m-d'));
+        [$datos, $errores] = ValidadorTurno::validarAlta(Request::json(), date('Y-m-d'), HorarioAtencion::actual());
 
         if ($errores !== []) {
             Response::error('Revisá los datos del turno', 400, $errores);
@@ -88,7 +96,7 @@ class TurnoControlador
             return;
         }
 
-        [$datos, $errores] = ValidadorTurno::validarReprogramacion(Request::json(), date('Y-m-d'));
+        [$datos, $errores] = ValidadorTurno::validarReprogramacion(Request::json(), date('Y-m-d'), HorarioAtencion::actual());
 
         if ($errores !== []) {
             Response::error('Revisá la fecha y la hora', 400, $errores);

@@ -12,6 +12,7 @@ require_once $comun . '/logger.php';
 require_once $comun . '/database.php';
 require_once $comun . '/auth.php';
 require_once $comun . '/validator.php';
+require_once $comun . '/configuracion.php';
 
 spl_autoload_register(function (string $clase): void {
     $archivo = __DIR__ . '/' . $clase . '.php';
