@@ -98,9 +98,16 @@ el veterinario del turno es el de la sesión.
 Cuerpo: `{"mascota_id": 101, "fecha": "2026-11-10", "hora": "10:30", "motivo": "CONSULTA"}`.
 `motivo`: `CONSULTA`, `VACUNACION` o `CHEQUEO_ADOPCION`. El turno queda `PROGRAMADO`.
 - 201: `{"turno": { ... }}`
-- 400: un error por campo (`mascota_id` no entero; fecha inválida, anterior a hoy o de más de un año adelante; hora que no es `HH:MM` o fuera del horario de atención, de 08:00 a 20:00; motivo inválido). El último turno puede empezar a las 19:59.
+- 400: un error por campo (`mascota_id` no entero; fecha inválida, anterior a hoy o de más de un año adelante; hora que no es `HH:MM` o fuera del horario de atención; motivo inválido). El horario lo configura la veterinaria (ver "Horario de atención"); si no lo cambió, es de 08:00 a 20:00 y el último turno puede empezar a las 19:59.
 - 404: la mascota no existe o está dada de baja.
 - 409: el veterinario ya tiene un turno a esa hora (los cancelados no cuentan). Viene con `campos.hora`.
+
+## Horario de atención (Entrega 5)
+`GET /api/pacientes/horario` — Cualquiera con sesión. El horario en que se pueden dar turnos, que la
+veterinaria cambia desde su panel (claves `hora_apertura` y `hora_cierre` de la configuración; ver
+`docs/api/contrato.md` de Backend). Lo usan los formularios de turnos para el rango de la hora.
+- 200: `{"apertura": "08:00", "cierre": "20:00"}`. Un turno puede empezar desde la apertura y hasta antes del cierre.
+- Si la veterinaria no lo cambió (o la tabla `configuracion` no existe todavía), es el de siempre: 08:00 a 20:00.
 
 ## Reprogramar un turno (Entrega 5)
 `POST /api/pacientes/turnos/{id}/reprogramar` — Veterinario, con CSRF. Cambia la fecha y la hora de un turno que el cliente pidió mover por WhatsApp. La mascota y el motivo no cambian.

@@ -70,6 +70,41 @@ class ValidadorTurnoTest extends TestCase
         }
     }
 
+    public function testUsaElHorarioQueLePasan(): void
+    {
+        // La veterinaria configuró de 09:00 a 13:00.
+        $horario = ['apertura' => '09:00', 'cierre' => '13:00'];
+        foreach (['09:00' => [], '12:59' => [], '08:30' => ['hora'], '13:00' => ['hora']] as $hora => $esperado) {
+            [, $errores] = ValidadorTurno::validarAlta(
+                ['mascota_id' => 1, 'fecha' => self::HOY, 'hora' => $hora, 'motivo' => 'CONSULTA'],
+                self::HOY,
+                $horario
+            );
+            $this->assertSame($esperado, array_keys($errores), $hora);
+        }
+
+        [, $errores] = ValidadorTurno::validarReprogramacion(['fecha' => self::HOY, 'hora' => '08:30'], self::HOY, $horario);
+        $this->assertSame('El horario de atención es de 09:00 a 13:00', $errores['hora']);
+    }
+
+    public function testElHorarioSaleDeLaConfiguracion(): void
+    {
+        Configuracion::reiniciar(['hora_apertura' => '09:30', 'hora_cierre' => '18:00']);
+        $this->assertSame(['apertura' => '09:30', 'cierre' => '18:00'], HorarioAtencion::actual());
+
+        // Sin nada guardado, el de siempre.
+        Configuracion::reiniciar([]);
+        $this->assertSame(['apertura' => '08:00', 'cierre' => '20:00'], HorarioAtencion::actual());
+
+        // Un valor que no es una hora, o un cierre antes de la apertura: el de siempre.
+        Configuracion::reiniciar(['hora_apertura' => 'temprano']);
+        $this->assertSame('08:00', HorarioAtencion::actual()['apertura']);
+        Configuracion::reiniciar(['hora_apertura' => '21:00']);
+        $this->assertSame(['apertura' => '08:00', 'cierre' => '20:00'], HorarioAtencion::actual());
+
+        Configuracion::reiniciar();
+    }
+
     public function testFaltaTodo(): void
     {
         [, $errores] = ValidadorTurno::validarAlta([], self::HOY);
