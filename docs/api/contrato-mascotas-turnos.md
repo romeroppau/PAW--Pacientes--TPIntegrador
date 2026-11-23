@@ -34,10 +34,13 @@ mascotas. Etapa 3: el alta de turnos (veterinario) y el alta, la edición y la b
   "mascota": { "id": 101, "nombre": "Firulais", "especie": "PERRO" },
   "duenio": { "id": 102, "nombre": "Cliente de Prueba", "telefono": "1155550102" },
   "veterinario": { "id": 101, "nombre": "Veterinaria de Prueba" },
-  "consulta_id": null
+  "consulta_id": null,
+  "precio": { "base": 15000.00, "descuento": 20, "final": 12000.00 }
 }
 ```
 `consulta_id` es la consulta del turno, si ya se inició la atención (para abrirla desde la agenda).
+
+`precio` (Entrega 5): lo que guardó el turno al sacarse (ver "Precio del turno y franjas promocionadas"): el precio base, el descuento de su franja (o `null`) y el valor final de la consulta. `null` en los turnos de antes de la migración 020.
 
 ## Agenda y turnos del cliente
 `GET /api/pacientes/turnos` — Veterinario o cliente.
@@ -109,6 +112,39 @@ veterinaria cambia desde su panel (claves `hora_apertura` y `hora_cierre` de la 
 portada del sitio y "Contactanos" de los paneles para mostrar el horario de atención.
 - 200: `{"apertura": "08:00", "cierre": "20:00"}`. Un turno puede empezar desde la apertura y hasta antes del cierre.
 - Si la veterinaria no lo cambió (o la tabla `configuracion` no existe todavía), es el de siempre: 08:00 a 20:00.
+
+## Precio del turno y franjas promocionadas (Entrega 5)
+
+La consulta tiene un **precio base** que la veterinaria carga en Configuración (`precio_consulta`, catálogo en Backend; 15000 por defecto). Las franjas con menos turnos se pueden **promocionar** con un descuento, desde "Qué promocionar" de Reportes (como los productos por vencer). Tabla `promocion_franja` y columnas `precio_consulta`, `descuento` y `promocion_franja_id` de `turno` (migración 020).
+
+- **Franja:** un día de lunes a sábado (`dia_semana` 1 a 6) y `MANIANA` (antes de las 13:00) o `TARDE` (desde las 13:00). Es la misma que usa el motor de Reportes.
+- **El turno guarda su precio al sacarse:** el precio base de ese momento y, si su franja tiene una promoción vigente que llega hasta el día del turno, su descuento. Aunque después la promoción termine o cambie el precio base, el turno conserva lo prometido. **Reprogramar** es como sacarlo de nuevo: toma el precio y la promoción de la franja nueva.
+- **La consulta** arranca con ese valor (`valor_base`) y no se edita (`contrato-consultas.md`). Un turno de antes de la migración 020 usa el precio base del momento, sin descuento.
+- Descuento de 5 a 90 %, hasta el día `hasta` inclusive (desde hoy y como mucho 90 días). Una sola promoción vigente por franja; no se borran (terminar una guarda cuándo).
+
+### GET /api/pacientes/promociones-turnos
+
+Público (lo muestra el sitio a los clientes). El precio base y las franjas en promoción:
+
+```json
+{
+  "precio_consulta": 15000,
+  "datos": [
+    { "id": 3, "dia_semana": 2, "franja": "TARDE", "porcentaje": 20, "hasta": "2026-12-31",
+      "nombre": "Martes a la tarde", "precio": 15000, "precio_promocion": 12000 }
+  ]
+}
+```
+
+### POST /api/pacientes/promociones-turnos
+
+Veterinario, con CSRF. `{ "dia_semana": 2, "franja": "TARDE", "porcentaje": 20, "hasta": "2026-12-31" }`. **201** con la promoción (forma de arriba).
+
+**Errores:** `400` con `campos` (`dia_semana`: "Elegí un día de lunes a sábado"; `franja`: "Elegí mañana o tarde"; `porcentaje`: "El descuento tiene que ser un número entero entre 5 y 90 (por ciento)"; `hasta`: "Elegí hasta qué día dura la promoción", "La promoción no puede terminar antes de hoy" o "La promoción puede durar como mucho 90 días (hasta el dd/mm/aaaa)"); `409` si la franja ya tiene una ("Martes a la tarde ya tiene una promoción del 20 % hasta el 31/12/2026. Terminala para publicar otra.", con `promocion_id`).
+
+### DELETE /api/pacientes/promociones-turnos/{id}
+
+Veterinario, con CSRF. Termina la promoción ahora: los turnos nuevos de esa franja ya no tienen descuento; los que ya se sacaron lo conservan. **204.** `404` "No hay una promoción vigente con ese número".
 
 ## Reprogramar un turno (Entrega 5)
 `POST /api/pacientes/turnos/{id}/reprogramar` — Veterinario, con CSRF. Cambia la fecha y la hora de un turno que el cliente pidió mover por WhatsApp. La mascota y el motivo no cambian.

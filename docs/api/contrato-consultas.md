@@ -20,7 +20,7 @@ Autor: rol 4 (Cristian). Prefijo de todas las rutas: `/api/pacientes`.
 - El costo o precio unitario se copia al agregar el ítem (de `insumo.costo` y `producto.precio`) y no cambia después.
 - El costo del insumo se cobra sin recargo.
 - Solo se pueden agregar insumos y productos activos.
-- `valor_base` arranca en `0.00` al iniciar la atención (la columna no admite NULL). El veterinario lo carga con el PUT; si no lo manda, se conserva. Un valor de 0 es válido.
+- `valor_base` (Entrega 5): al iniciar la atención toma el precio que guardó el turno al sacarse (el precio base de la configuración con el descuento de su franja, si estaba promocionada; ver "Precio del turno y franjas promocionadas" en `contrato-mascotas-turnos.md`). **No se edita**: si el PUT lo manda, responde `400` "El valor de la consulta no se cambia: sale del precio del turno". Un turno de antes de la migración 020 toma el precio base del momento, sin descuento. La consulta trae además `precio_lista` y `descuento` (el precio sin descuento y el porcentaje; `null` si el turno no tenía descuento), y la factura (`consulta.precio_lista` y `consulta.descuento`) también.
 - El diagnóstico puede estar vacío mientras la consulta está abierta; es obligatorio para finalizar.
 - Total = `valor_base` + subtotal de insumos + subtotal de productos.
 - Número de factura: `C-` más el id de la factura con 6 dígitos (`C-000102`). Dentro de la transacción se inserta con un número provisorio y se actualiza al definitivo.
@@ -52,7 +52,7 @@ El `id` de cada ítem es el que se usa para quitarlo.
 
 ## Guardar diagnóstico, observaciones y valor base
 `PUT /api/pacientes/consultas/{id}` — Veterinario.
-Cuerpo, todos los campos opcionales: `{"diagnostico": "texto", "observaciones": "texto", "valor_base": 8000.00}`. Un texto vacío borra el dato.
+Cuerpo, todos los campos opcionales: `{"diagnostico": "texto", "observaciones": "texto"}`. Un texto vacío borra el dato. `valor_base` ya no se cambia (sale del turno): si viene, `400`.
 - 200: la consulta actualizada.
 - 400: `valor_base` negativo o no numérico; texto de más de 5.000 caracteres.
 - 404: no existe.

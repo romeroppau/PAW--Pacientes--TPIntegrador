@@ -22,7 +22,7 @@ class ConsultaControlador
             return;
         }
 
-        $resultado = $repositorio->iniciarAtencion($turnoId);
+        $resultado = $repositorio->iniciarAtencion($turnoId, PrecioTurno::precioBase());
 
         if ($resultado['estado'] === 'turno_inexistente') {
             Response::error('Turno no encontrado', 404);
@@ -75,6 +75,14 @@ class ConsultaControlador
         }
 
         $datos = Request::json();
+
+        // El valor de la consulta sale del precio que guardó el turno al sacarse (con el descuento de
+        // su franja, migración 020): no se cambia a mano.
+        if (is_array($datos) && array_key_exists('valor_base', $datos)) {
+            Response::error('El valor de la consulta no se cambia: sale del precio del turno', 400);
+            return;
+        }
+
         $errores = ValidadorConsulta::validarCambios($datos);
 
         if ($errores !== []) {
@@ -82,7 +90,7 @@ class ConsultaControlador
             return;
         }
 
-        // Solo se cambian los campos que llegaron. Texto vacío = sin dato (NULL). valor_base vacío o ausente = no cambia.
+        // Solo se cambian los campos que llegaron. Texto vacío = sin dato (NULL).
         $cambios = [];
 
         foreach (['diagnostico', 'observaciones'] as $campo) {
@@ -90,10 +98,6 @@ class ConsultaControlador
                 $texto = trim($datos[$campo]);
                 $cambios[$campo] = $texto === '' ? null : $texto;
             }
-        }
-
-        if (isset($datos['valor_base'])) {
-            $cambios['valor_base'] = number_format((float) $datos['valor_base'], 2, '.', '');
         }
 
         $repositorio->actualizar($id, $cambios);
