@@ -103,9 +103,10 @@ Cuerpo: `{"mascota_id": 101, "fecha": "2026-11-10", "hora": "10:30", "motivo": "
 - 409: el veterinario ya tiene un turno a esa hora (los cancelados no cuentan). Viene con `campos.hora`.
 
 ## Horario de atención (Entrega 5)
-`GET /api/pacientes/horario` — Cualquiera con sesión. El horario en que se pueden dar turnos, que la
+`GET /api/pacientes/horario` — **Público** (sin sesión). El horario en que se pueden dar turnos, que la
 veterinaria cambia desde su panel (claves `hora_apertura` y `hora_cierre` de la configuración; ver
-`docs/api/contrato.md` de Backend). Lo usan los formularios de turnos para el rango de la hora.
+`docs/api/contrato.md` de Backend). Lo usan los formularios de turnos para el rango de la hora, y la
+portada del sitio y "Contactanos" de los paneles para mostrar el horario de atención.
 - 200: `{"apertura": "08:00", "cierre": "20:00"}`. Un turno puede empezar desde la apertura y hasta antes del cierre.
 - Si la veterinaria no lo cambió (o la tabla `configuracion` no existe todavía), es el de siempre: 08:00 a 20:00.
 
