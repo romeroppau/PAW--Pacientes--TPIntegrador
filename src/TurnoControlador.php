@@ -8,7 +8,8 @@ class TurnoControlador
     private const DIAS_HACIA_ATRAS_CLIENTE = 30;
 
     // GET /api/pacientes/horario — público (sin sesión). El horario de atención que configuró la
-    // veterinaria: {"apertura": "08:00", "cierre": "20:00"}. Lo usan los formularios de turnos y lo
+    // veterinaria: {"apertura": "09:00", "cierre": "19:00", "franjas": [{"apertura": "09:00",
+    // "cierre": "13:00"}, {"apertura": "16:00", "cierre": "19:00"}]} (una franja si es de corrido). Lo usan los formularios de turnos y lo
     // muestran la portada del sitio y "Contactanos" de los paneles. No es un dato privado.
     public static function horario(): void
     {

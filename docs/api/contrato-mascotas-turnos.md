@@ -107,11 +107,17 @@ Cuerpo: `{"mascota_id": 101, "fecha": "2026-11-10", "hora": "10:30", "motivo": "
 
 ## Horario de atención (Entrega 5)
 `GET /api/pacientes/horario` — **Público** (sin sesión). El horario en que se pueden dar turnos, que la
-veterinaria cambia desde su panel (claves `hora_apertura` y `hora_cierre` de la configuración; ver
-`docs/api/contrato.md` de Backend). Lo usan los formularios de turnos para el rango de la hora, y la
-portada del sitio y "Contactanos" de los paneles para mostrar el horario de atención.
-- 200: `{"apertura": "08:00", "cierre": "20:00"}`. Un turno puede empezar desde la apertura y hasta antes del cierre.
+veterinaria cambia desde su panel (claves `hora_apertura` y `hora_cierre` y, para el horario cortado,
+`hora_apertura_2` y `hora_cierre_2` de la configuración; ver `docs/api/contrato.md` de Backend). Lo
+usan los formularios de turnos para el rango de la hora, y la portada del sitio y "Contactanos" de
+los paneles para mostrar el horario de atención.
+- 200: `{"apertura": "09:00", "cierre": "19:00", "franjas": [{"apertura": "09:00", "cierre": "13:00"}, {"apertura": "16:00", "cierre": "19:00"}]}`.
+  `franjas` tiene una (de corrido) o dos (horario cortado). Un turno puede empezar dentro de alguna
+  franja: desde su apertura y hasta antes de su cierre (en el corte, `400` en `hora` con
+  "El horario de atención es de 09:00 a 13:00 y de 16:00 a 19:00"). `apertura` y `cierre` son la
+  primera apertura y el último cierre. De 00:00 a 23:59 es atender las 24 horas.
 - Si la veterinaria no lo cambió (o la tabla `configuracion` no existe todavía), es el de siempre: 08:00 a 20:00.
+  Una segunda franja incompleta o que se superpone con la primera se ignora.
 
 ## Precio del turno y franjas promocionadas (Entrega 5)
 
