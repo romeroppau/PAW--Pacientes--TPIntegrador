@@ -68,7 +68,7 @@ class TurnoControlador
         }
 
         $repositorio = self::repositorio();
-        $resultado = $repositorio->crear($datos, (int) $sesion['id']);
+        $resultado = $repositorio->crear($datos, (int) $sesion['id'], self::precioPara($datos['fecha'], $datos['hora']));
 
         if ($resultado === 'mascota_inexistente') {
             Response::error('Mascota no encontrada', 404);
@@ -105,7 +105,7 @@ class TurnoControlador
 
         $repositorio = self::repositorio();
 
-        switch ($repositorio->reprogramar($id, $datos['fecha'], $datos['hora'])) {
+        switch ($repositorio->reprogramar($id, $datos['fecha'], $datos['hora'], self::precioPara($datos['fecha'], $datos['hora']))) {
             case 'ok':
                 Response::json(['turno' => $repositorio->detalle($id)]);
                 return;
@@ -121,6 +121,17 @@ class TurnoControlador
     }
 
     // ---------- Ayudas ----------
+
+    // El precio que guarda un turno de esa fecha y hora: el precio base de hoy y, si su franja tiene una
+    // promoción vigente que llega hasta ese día, su descuento.
+    private static function precioPara(string $fecha, string $hora): array
+    {
+        $franja = PrecioTurno::franjaDe($fecha, $hora);
+        $promocion = $franja['dia_semana'] > 6 ? null
+            : (new PromocionFranjaRepositorio(Database::conectar()))->paraTurno($franja['dia_semana'], $franja['franja'], $fecha, date('Y-m-d'));
+
+        return PrecioTurno::paraTurno(PrecioTurno::precioBase(), $promocion);
+    }
 
     private static function cambiarEstado(array $parametros, string $estado, ?string $hastaFecha): void
     {
