@@ -15,3 +15,5 @@ $router->post('/api/pacientes/consultas/{id}/finalizar', [ConsultaControlador::c
 $router->get('/api/pacientes/consultas/{id}/factura', [ConsultaControlador::class, 'factura']);
 
 $router->get('/api/pacientes/mascotas/{id}/historial', [ConsultaControlador::class, 'historial']);
+// Pacientes atendidos (la veterinaria, "Historial clínico"): las mascotas con consultas, de a 20.
+$router->get('/api/pacientes/atendidos', [ConsultaControlador::class, 'atendidos']);
