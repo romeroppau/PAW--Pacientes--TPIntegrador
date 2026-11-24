@@ -81,6 +81,7 @@ mascotas. Etapa 3: el alta de turnos (veterinario) y el alta, la edición y la b
 `GET /api/pacientes/mascotas` — Veterinario, cliente o rescatista. Solo las activas, ordenadas por nombre (hasta 100).
 - **Veterinario:** todas. Parámetro opcional `buscar`: parte del nombre de la mascota o del dueño.
 - **Cliente o rescatista:** las suyas. Ignora `buscar`.
+- (Entrega 5) Parámetro opcional `con_calendario=1`, para los dos: solo las mascotas que tienen vacunas o desparasitaciones registradas (lo usa el Calendario sanitario).
 - 200: `{"mascotas": [ ... ]}`
 - 400: `buscar` tiene más de 80 caracteres.
 
