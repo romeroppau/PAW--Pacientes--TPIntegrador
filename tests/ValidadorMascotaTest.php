@@ -57,4 +57,47 @@ class ValidadorMascotaTest extends TestCase
         $this->assertArrayHasKey('peso_kg', $texto);
         $this->assertArrayHasKey('peso_kg', $enorme);
     }
+
+    // PNG de 1 x 1 píxel.
+    private const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+
+    public function testSinFotoNoLaCambia(): void
+    {
+        [$limpios] = ValidadorMascota::validar(['nombre' => 'Tom', 'especie' => 'GATO'], self::HOY);
+
+        $this->assertArrayNotHasKey('foto', $limpios);
+    }
+
+    public function testUnaFotoValidaQuedaComoBytesYTipo(): void
+    {
+        [$limpios, $errores] = ValidadorMascota::validar(['nombre' => 'Tom', 'especie' => 'GATO', 'foto' => self::PNG], self::HOY);
+
+        $this->assertSame([], $errores);
+        $this->assertSame('image/png', $limpios['foto'][1]);
+        $this->assertSame('89504e47', bin2hex(substr($limpios['foto'][0], 0, 4)));   // firma de un PNG
+    }
+
+    public function testFotoNullLaBorra(): void
+    {
+        [$limpios, $errores] = ValidadorMascota::validar(['nombre' => 'Tom', 'especie' => 'GATO', 'foto' => null], self::HOY);
+
+        $this->assertSame([], $errores);
+        $this->assertNull($limpios['foto']);
+    }
+
+    public function testRechazaUnaFotoQueNoEsImagen(): void
+    {
+        $texto = 'data:image/png;base64,' . base64_encode('esto no es una imagen');
+        [, $errores] = ValidadorMascota::validar(['nombre' => 'Tom', 'especie' => 'GATO', 'foto' => $texto], self::HOY);
+
+        $this->assertSame(['foto'], array_keys($errores));
+    }
+
+    public function testRechazaUnaFotoDeMasDeUnMega(): void
+    {
+        $grande = 'data:image/png;base64,' . base64_encode(str_repeat('a', 1024 * 1024 + 1));
+        [, $errores] = ValidadorMascota::validar(['nombre' => 'Tom', 'especie' => 'GATO', 'foto' => $grande], self::HOY);
+
+        $this->assertSame('La imagen no puede superar 1 MB', $errores['foto']);
+    }
 }

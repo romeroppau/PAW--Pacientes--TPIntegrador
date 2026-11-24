@@ -70,10 +70,95 @@ class ValidadorTurnoTest extends TestCase
         }
     }
 
+    public function testUsaElHorarioQueLePasan(): void
+    {
+        // La veterinaria configuró de 09:00 a 13:00.
+        $horario = ['apertura' => '09:00', 'cierre' => '13:00'];
+        foreach (['09:00' => [], '12:59' => [], '08:30' => ['hora'], '13:00' => ['hora']] as $hora => $esperado) {
+            [, $errores] = ValidadorTurno::validarAlta(
+                ['mascota_id' => 1, 'fecha' => self::HOY, 'hora' => $hora, 'motivo' => 'CONSULTA'],
+                self::HOY,
+                $horario
+            );
+            $this->assertSame($esperado, array_keys($errores), $hora);
+        }
+
+        [, $errores] = ValidadorTurno::validarReprogramacion(['fecha' => self::HOY, 'hora' => '08:30'], self::HOY, $horario);
+        $this->assertSame('El horario de atención es de 09:00 a 13:00', $errores['hora']);
+    }
+
+    public function testElHorarioSaleDeLaConfiguracion(): void
+    {
+        Configuracion::reiniciar(['hora_apertura' => '09:30', 'hora_cierre' => '18:00']);
+        $franja = ['apertura' => '09:30', 'cierre' => '18:00'];
+        $this->assertSame([...$franja, 'franjas' => [$franja]], HorarioAtencion::actual());
+
+        // Sin nada guardado, el de siempre.
+        Configuracion::reiniciar([]);
+        $this->assertSame(ValidadorTurno::horarioPorDefecto(), HorarioAtencion::actual());
+        $this->assertSame(['apertura' => '08:00', 'cierre' => '20:00'], HorarioAtencion::actual()['franjas'][0]);
+
+        // Un valor que no es una hora, o un cierre antes de la apertura: el de siempre.
+        Configuracion::reiniciar(['hora_apertura' => 'temprano']);
+        $this->assertSame('08:00', HorarioAtencion::actual()['apertura']);
+        Configuracion::reiniciar(['hora_apertura' => '21:00']);
+        $this->assertSame(ValidadorTurno::horarioPorDefecto(), HorarioAtencion::actual());
+
+        Configuracion::reiniciar();
+    }
+
     public function testFaltaTodo(): void
     {
         [, $errores] = ValidadorTurno::validarAlta([], self::HOY);
 
         $this->assertCount(4, $errores);
+    }
+
+    public function testReprogramarSoloPideFechaYHora(): void
+    {
+        [$limpios, $errores] = ValidadorTurno::validarReprogramacion(['fecha' => self::HOY, 'hora' => '19:30'], self::HOY);
+
+        $this->assertSame([], $errores);
+        $this->assertSame(['fecha' => self::HOY, 'hora' => '19:30'], $limpios);
+    }
+
+    public function testReprogramarUsaLasMismasReglasQueElAlta(): void
+    {
+        [, $errores] = ValidadorTurno::validarReprogramacion(['fecha' => '2026-11-05', 'hora' => '20:00'], self::HOY);
+
+        $this->assertSame(['fecha', 'hora'], array_keys($errores));
+    }
+
+    public function testHorarioCortadoEnDosFranjas(): void
+    {
+        Configuracion::reiniciar(['hora_apertura' => '09:00', 'hora_cierre' => '13:00', 'hora_apertura_2' => '16:00', 'hora_cierre_2' => '19:00']);
+        $horario = HorarioAtencion::actual();
+        $this->assertSame('09:00', $horario['apertura']);
+        $this->assertSame('19:00', $horario['cierre']);
+        $this->assertCount(2, $horario['franjas']);
+
+        [$limpios, $errores] = ValidadorTurno::validarAlta(['mascota_id' => 1, 'fecha' => self::HOY, 'hora' => '16:30', 'motivo' => 'CONSULTA'], self::HOY, $horario);
+        $this->assertSame([], $errores);
+        $this->assertSame('16:30', $limpios['hora']);
+
+        // En el corte (de 13 a 16) no se dan turnos.
+        [, $errores] = ValidadorTurno::validarReprogramacion(['fecha' => self::HOY, 'hora' => '14:00'], self::HOY, $horario);
+        $this->assertSame('El horario de atención es de 09:00 a 13:00 y de 16:00 a 19:00', $errores['hora']);
+
+        // Una segunda franja incompleta o que pisa la primera se ignora: de corrido.
+        Configuracion::reiniciar(['hora_apertura' => '09:00', 'hora_cierre' => '13:00', 'hora_apertura_2' => '12:00', 'hora_cierre_2' => '19:00']);
+        $this->assertCount(1, HorarioAtencion::actual()['franjas']);
+        Configuracion::reiniciar(['hora_apertura_2' => '21:00']);
+        $this->assertCount(1, HorarioAtencion::actual()['franjas']);
+
+        Configuracion::reiniciar();
+    }
+
+    public function testSeAtiendeLas24Horas(): void
+    {
+        Configuracion::reiniciar(['hora_apertura' => '00:00', 'hora_cierre' => '23:59']);
+        [, $errores] = ValidadorTurno::validarReprogramacion(['fecha' => self::HOY, 'hora' => '03:15'], self::HOY, HorarioAtencion::actual());
+        $this->assertArrayNotHasKey('hora', $errores);
+        Configuracion::reiniciar();
     }
 }

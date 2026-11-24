@@ -23,22 +23,27 @@ class ConsultaRepositorio
     }
 
     // Crea la consulta de un turno PROGRAMADO y lo pasa a EN_ATENCION, en una sola transacción.
+    // El valor de la consulta es el que guardó el turno al sacarse (precio base con el descuento de su
+    // franja, migración 020) y no se edita. Un turno de antes de la migración no lo tiene: usa
+    // $precioBase (el de la configuración de hoy), sin descuento.
     // Devuelve ['estado' => 'ok', 'id' => n], 'turno_inexistente' o 'no_programado'.
-    public function iniciarAtencion(int $turnoId): array
+    public function iniciarAtencion(int $turnoId, float $precioBase): array
     {
-        return $this->enTransaccion(function () use ($turnoId): array {
-            $estado = $this->valor('SELECT estado FROM turno WHERE id = ? FOR UPDATE', [$turnoId]);
+        return $this->enTransaccion(function () use ($turnoId, $precioBase): array {
+            $turno = $this->fila('SELECT estado, precio_consulta, descuento FROM turno WHERE id = ? FOR UPDATE', [$turnoId]);
 
-            if ($estado === null) {
+            if ($turno === null) {
                 return ['estado' => 'turno_inexistente'];
             }
 
-            if ($estado !== 'PROGRAMADO') {
+            if ($turno['estado'] !== 'PROGRAMADO') {
                 return ['estado' => 'no_programado'];
             }
 
-            // valor_base no admite NULL: arranca en 0 y el veterinario lo carga después.
-            $this->ejecutar('INSERT INTO consulta (turno_id, valor_base) VALUES (?, 0)', [$turnoId]);
+            $valor = $turno['precio_consulta'] === null
+                ? PrecioTurno::conDescuento($precioBase, null)
+                : PrecioTurno::conDescuento((float) $turno['precio_consulta'], $turno['descuento'] === null ? null : (int) $turno['descuento']);
+            $this->ejecutar('INSERT INTO consulta (turno_id, valor_base) VALUES (?, ?)', [$turnoId, number_format($valor, 2, '.', '')]);
             $id = (int) $this->db->lastInsertId();
             $this->ejecutar("UPDATE turno SET estado = 'EN_ATENCION' WHERE id = ?", [$turnoId]);
 
@@ -56,7 +61,7 @@ class ConsultaRepositorio
     {
         $consulta = $this->fila(
             'SELECT c.id, c.turno_id, c.diagnostico, c.observaciones, c.valor_base, c.estado,
-                    c.finalizada_en, t.mascota_id, t.motivo
+                    c.finalizada_en, t.mascota_id, t.motivo, t.precio_consulta AS precio_lista, t.descuento
              FROM consulta c JOIN turno t ON t.id = c.turno_id
              WHERE c.id = ?',
             [$id]
@@ -64,6 +69,12 @@ class ConsultaRepositorio
 
         if ($consulta === null) {
             return null;
+        }
+
+        // Si el turno tenía descuento (franja promocionada): el precio sin descuento y el porcentaje.
+        $consulta['descuento'] = $consulta['descuento'] === null ? null : (int) $consulta['descuento'];
+        if ($consulta['descuento'] === null) {
+            $consulta['precio_lista'] = null;
         }
 
         $consulta['insumos'] = $this->items($id, 'insumos');
@@ -259,6 +270,45 @@ class ConsultaRepositorio
              FROM factura_consulta WHERE consulta_id = ?',
             [$consultaId]
         );
+    }
+
+    // La factura con lo que hace falta para mostrarla: la consulta (fecha del turno, diagnóstico y
+    // valor base), la mascota, el dueño y los ítems. null si la consulta no existe o no está finalizada.
+    public function facturaConDetalle(int $consultaId): ?array
+    {
+        $factura = $this->factura($consultaId);
+        if ($factura === null) {
+            return null;
+        }
+
+        $datos = $this->fila(
+            'SELECT c.id, c.diagnostico, c.valor_base, t.fecha, t.hora, t.motivo, t.precio_consulta, t.descuento,
+                    m.id AS mascota_id, m.nombre AS mascota, u.id AS cliente_id, u.nombre AS cliente
+             FROM consulta c
+             JOIN turno t ON t.id = c.turno_id
+             JOIN mascota m ON m.id = t.mascota_id
+             JOIN usuario u ON u.id = m.duenio_id
+             WHERE c.id = ?',
+            [$consultaId]
+        );
+
+        $factura['consulta'] = [
+            'id' => (int) $datos['id'],
+            'fecha' => $datos['fecha'],
+            'hora' => substr((string) $datos['hora'], 0, 5),
+            'motivo' => $datos['motivo'],
+            'diagnostico' => $datos['diagnostico'],
+            'valor_base' => $datos['valor_base'],
+            // Si el turno tenía descuento (franja promocionada): el precio sin descuento y el porcentaje.
+            'precio_lista' => $datos['descuento'] === null ? null : $datos['precio_consulta'],
+            'descuento' => $datos['descuento'] === null ? null : (int) $datos['descuento'],
+            'insumos' => $this->items($consultaId, 'insumos'),
+            'productos' => $this->items($consultaId, 'productos'),
+        ];
+        $factura['mascota'] = ['id' => (int) $datos['mascota_id'], 'nombre' => $datos['mascota']];
+        $factura['cliente'] = ['id' => (int) $datos['cliente_id'], 'nombre' => $datos['cliente']];
+
+        return $factura;
     }
 
     // Id del dueño de la mascota, o null si la mascota no existe.

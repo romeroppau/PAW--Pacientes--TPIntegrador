@@ -22,7 +22,7 @@ class ConsultaControlador
             return;
         }
 
-        $resultado = $repositorio->iniciarAtencion($turnoId);
+        $resultado = $repositorio->iniciarAtencion($turnoId, PrecioTurno::precioBase());
 
         if ($resultado['estado'] === 'turno_inexistente') {
             Response::error('Turno no encontrado', 404);
@@ -75,6 +75,14 @@ class ConsultaControlador
         }
 
         $datos = Request::json();
+
+        // El valor de la consulta sale del precio que guardó el turno al sacarse (con el descuento de
+        // su franja, migración 020): no se cambia a mano.
+        if (is_array($datos) && array_key_exists('valor_base', $datos)) {
+            Response::error('El valor de la consulta no se cambia: sale del precio del turno', 400);
+            return;
+        }
+
         $errores = ValidadorConsulta::validarCambios($datos);
 
         if ($errores !== []) {
@@ -82,7 +90,7 @@ class ConsultaControlador
             return;
         }
 
-        // Solo se cambian los campos que llegaron. Texto vacío = sin dato (NULL). valor_base vacío o ausente = no cambia.
+        // Solo se cambian los campos que llegaron. Texto vacío = sin dato (NULL).
         $cambios = [];
 
         foreach (['diagnostico', 'observaciones'] as $campo) {
@@ -90,10 +98,6 @@ class ConsultaControlador
                 $texto = trim($datos[$campo]);
                 $cambios[$campo] = $texto === '' ? null : $texto;
             }
-        }
-
-        if (isset($datos['valor_base'])) {
-            $cambios['valor_base'] = number_format((float) $datos['valor_base'], 2, '.', '');
         }
 
         $repositorio->actualizar($id, $cambios);
@@ -186,6 +190,18 @@ class ConsultaControlador
                 return;
             }
 
+            // Un intento anterior ya descontó un ítem con otra cantidad (se cambió la cantidad entre
+            // un intento y otro). Inventario no descuenta nada: hay que volver a la cantidad descontada.
+            if ($respuesta['codigo'] === 409 && ($respuesta['datos']['motivo'] ?? null) === 'OPERACION_DISTINTA') {
+                Response::json([
+                    'error' => 'Un intento anterior de finalizar ya descontó del stock otra cantidad de algunos ítems. '
+                        . 'Volvé a dejar la cantidad que se descontó e intentá de nuevo.',
+                    'motivo' => 'OPERACION_DISTINTA',
+                    'items' => $respuesta['datos']['items'] ?? []
+                ], 409);
+                return;
+            }
+
             if ($respuesta['codigo'] === 409) {
                 Response::json([
                     'error' => 'Stock insuficiente',
@@ -215,12 +231,17 @@ class ConsultaControlador
     }
 
     // GET /api/pacientes/consultas/{id}/factura
+    // El cliente ve solo las facturas de sus mascotas: la de otro da 404, igual que si no existiera.
     public static function factura(array $parametros): void
     {
-        self::veterinario();
+        $sesion = Auth::requerirRol(['CLIENTE', 'VETERINARIO']);
 
         $id = self::entero($parametros, 'id');
-        $factura = $id === null ? null : self::repositorio()->factura($id);
+        $factura = $id === null ? null : self::repositorio()->facturaConDetalle($id);
+
+        if ($factura !== null && $sesion['rol'] === 'CLIENTE' && $factura['cliente']['id'] !== (int) $sesion['id']) {
+            $factura = null;
+        }
 
         // Si la consulta no existe o no está finalizada, se devuelve 404. No se devuelve 409 porque el cliente no puede finalizarla.
         if ($factura === null) {

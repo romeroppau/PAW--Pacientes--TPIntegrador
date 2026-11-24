@@ -7,6 +7,7 @@ class TurnoRepositorio
     // Cada turno con su mascota, el dueño, el veterinario y la consulta (si ya se inició la atención).
     private const SELECT_TURNO =
         "SELECT t.id, t.fecha, TIME_FORMAT(t.hora, '%H:%i') AS hora, t.motivo, t.estado,
+                t.precio_consulta, t.descuento,
                 m.id AS mascota_id, m.nombre AS mascota_nombre, m.especie,
                 d.id AS duenio_id, d.nombre AS duenio_nombre, d.telefono AS duenio_telefono,
                 v.id AS veterinario_id, v.nombre AS veterinario_nombre,
@@ -42,10 +43,11 @@ class TurnoRepositorio
         return $this->turnos(self::SELECT_TURNO . ' WHERE t.id = ?', [$id])[0] ?? null;
     }
 
-    // Carga un turno PROGRAMADO. $datos viene de ValidadorTurno.
+    // Carga un turno PROGRAMADO. $datos viene de ValidadorTurno; $precio, de PrecioTurno::paraTurno
+    // (el precio base y el descuento de su franja, que el turno guarda: migración 020).
     // Devuelve el id nuevo, 'mascota_inexistente' (no existe o está dada de baja) u 'ocupado'
     // (el veterinario ya tiene un turno a esa hora; los cancelados no cuentan).
-    public function crear(array $datos, int $veterinarioId): int|string
+    public function crear(array $datos, int $veterinarioId, array $precio): int|string
     {
         $activa = $this->db->prepare('SELECT 1 FROM mascota WHERE id = ? AND activo = 1');
         $activa->execute([$datos['mascota_id']]);
@@ -56,8 +58,12 @@ class TurnoRepositorio
 
         try {
             $this->db->prepare(
-                'INSERT INTO turno (mascota_id, veterinario_id, fecha, hora, motivo) VALUES (?, ?, ?, ?, ?)'
-            )->execute([$datos['mascota_id'], $veterinarioId, $datos['fecha'], $datos['hora'], $datos['motivo']]);
+                'INSERT INTO turno (mascota_id, veterinario_id, fecha, hora, motivo, precio_consulta, descuento, promocion_franja_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+            )->execute([
+                $datos['mascota_id'], $veterinarioId, $datos['fecha'], $datos['hora'], $datos['motivo'],
+                $precio['precio_consulta'], $precio['descuento'], $precio['promocion_franja_id'],
+            ]);
         } catch (PDOException $error) {
             // 1062: choca con uq_turno_veterinario_horario (migración 004).
             if (($error->errorInfo[1] ?? null) === 1062) {
@@ -67,6 +73,42 @@ class TurnoRepositorio
         }
 
         return (int) $this->db->lastInsertId();
+    }
+
+    // Cambia la fecha y la hora de un turno PROGRAMADO, con el precio de la franja nueva (reprogramar es
+    // como sacarlo de nuevo: PrecioTurno::paraTurno). Devuelve 'ok', 'inexistente', 'no_programado'
+    // u 'ocupado' (el veterinario ya tiene otro turno a esa hora; los cancelados no cuentan).
+    // Igual que cambiarEstado, el UPDATE comprueba el estado en la misma sentencia.
+    public function reprogramar(int $id, string $fecha, string $hora, array $precio): string
+    {
+        try {
+            $sentencia = $this->db->prepare(
+                "UPDATE turno SET fecha = ?, hora = ?, precio_consulta = ?, descuento = ?, promocion_franja_id = ?
+                 WHERE id = ? AND estado = 'PROGRAMADO'"
+            );
+            $sentencia->execute([$fecha, $hora, $precio['precio_consulta'], $precio['descuento'], $precio['promocion_franja_id'], $id]);
+        } catch (PDOException $error) {
+            // 1062: choca con uq_turno_veterinario_horario (migración 004).
+            if (($error->errorInfo[1] ?? null) === 1062) {
+                return 'ocupado';
+            }
+            throw $error;
+        }
+
+        if ($sentencia->rowCount() === 1) {
+            return 'ok';
+        }
+
+        // No cambió ninguna fila: no existe, no está programado, o ya tenía esa fecha y hora.
+        $sentencia = $this->db->prepare('SELECT estado FROM turno WHERE id = ?');
+        $sentencia->execute([$id]);
+        $actual = $sentencia->fetchColumn();
+
+        if ($actual === false) {
+            return 'inexistente';
+        }
+
+        return $actual === 'PROGRAMADO' ? 'ok' : 'no_programado';
     }
 
     // Pasa un turno PROGRAMADO a $estado (CANCELADO o AUSENTE). Con $hastaFecha, solo si el turno es de
@@ -129,7 +171,13 @@ class TurnoRepositorio
                 'id' => (int) $fila['veterinario_id'],
                 'nombre' => $fila['veterinario_nombre']
             ],
-            'consulta_id' => $fila['consulta_id'] === null ? null : (int) $fila['consulta_id']
+            'consulta_id' => $fila['consulta_id'] === null ? null : (int) $fila['consulta_id'],
+            // El precio que guardó el turno al sacarse (null en los turnos de antes de la migración 020).
+            'precio' => $fila['precio_consulta'] === null ? null : [
+                'base' => (float) $fila['precio_consulta'],
+                'descuento' => $fila['descuento'] === null ? null : (int) $fila['descuento'],
+                'final' => PrecioTurno::conDescuento((float) $fila['precio_consulta'], $fila['descuento'] === null ? null : (int) $fila['descuento']),
+            ],
         ], $sentencia->fetchAll());
     }
 }

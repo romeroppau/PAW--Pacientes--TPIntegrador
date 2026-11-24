@@ -1,15 +1,18 @@
 <?php
 
-// Validación del alta de un turno. No usa la base de datos.
+// Validación del alta y de la reprogramación de un turno. No usa la base de datos.
 // Devuelve [$limpios, $errores], con un error por campo (igual que ValidadorMascota).
+// El horario de atención lo pasa quien llama (HorarioAtencion::actual(), que la veterinaria cambia
+// desde su panel); si no lo pasa, es el de siempre: de HORA_APERTURA a HORA_CIERRE.
 class ValidadorTurno
 {
     public const MOTIVOS = ['CONSULTA', 'VACUNACION', 'CHEQUEO_ADOPCION'];
+    // Horario por defecto (el mismo que figura en el catálogo de configuración de Backend).
     public const HORA_APERTURA = '08:00';
     public const HORA_CIERRE = '20:00';
     private const ANIOS_HACIA_ADELANTE = 1;
 
-    public static function validarAlta(array $datos, string $hoy): array
+    public static function validarAlta(array $datos, string $hoy, ?array $horario = null): array
     {
         $limpios = [];
         $errores = [];
@@ -21,6 +24,44 @@ class ValidadorTurno
             $limpios['mascota_id'] = $mascota;
         }
 
+        self::validarFechaYHora($datos, $hoy, $horario ?? self::horarioPorDefecto(), $limpios, $errores);
+
+        $motivo = $datos['motivo'] ?? null;
+        if (!is_string($motivo) || !in_array($motivo, self::MOTIVOS, true)) {
+            $errores['motivo'] = 'Elegí el motivo';
+        } else {
+            $limpios['motivo'] = $motivo;
+        }
+
+        return [$limpios, $errores];
+    }
+
+    // Reprogramar: solo cambian la fecha y la hora, con las mismas reglas del alta.
+    public static function validarReprogramacion(array $datos, string $hoy, ?array $horario = null): array
+    {
+        $limpios = [];
+        $errores = [];
+        self::validarFechaYHora($datos, $hoy, $horario ?? self::horarioPorDefecto(), $limpios, $errores);
+
+        return [$limpios, $errores];
+    }
+
+    // El mismo formato que HorarioAtencion::actual(), con una sola franja.
+    public static function horarioPorDefecto(): array
+    {
+        $franja = ['apertura' => self::HORA_APERTURA, 'cierre' => self::HORA_CIERRE];
+
+        return [...$franja, 'franjas' => [$franja]];
+    }
+
+    // "de 09:00 a 13:00 y de 16:00 a 19:00"
+    public static function textoHorario(array $franjas): string
+    {
+        return implode(' y ', array_map(fn ($f) => 'de ' . $f['apertura'] . ' a ' . $f['cierre'], $franjas));
+    }
+
+    private static function validarFechaYHora(array $datos, string $hoy, array $horario, array &$limpios, array &$errores): void
+    {
         // Fecha: de hoy hasta un año adelante.
         $fecha = $datos['fecha'] ?? null;
         if (ValidadorFiltros::validarFecha($fecha) !== []) {
@@ -33,23 +74,20 @@ class ValidadorTurno
             $limpios['fecha'] = $fecha;
         }
 
-        // Hora: HH:MM de 24 horas, dentro del horario de atención (el último turno empieza antes del cierre).
+        // Hora: HH:MM de 24 horas, dentro de alguna franja del horario de atención (el último turno de
+        // cada una empieza antes de su cierre). Sin 'franjas', una sola: de apertura a cierre.
+        $franjas = $horario['franjas'] ?? [['apertura' => $horario['apertura'], 'cierre' => $horario['cierre']]];
+        $dentro = static fn (string $hora): bool => array_filter(
+            $franjas,
+            fn ($f) => $hora >= $f['apertura'] && $hora < $f['cierre']
+        ) !== [];
         $hora = $datos['hora'] ?? null;
         if (!is_string($hora) || !preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $hora)) {
             $errores['hora'] = 'La hora debe tener el formato HH:MM';
-        } elseif ($hora < self::HORA_APERTURA || $hora >= self::HORA_CIERRE) {
-            $errores['hora'] = 'El horario de atención es de ' . self::HORA_APERTURA . ' a ' . self::HORA_CIERRE;
+        } elseif (!$dentro($hora)) {
+            $errores['hora'] = 'El horario de atención es ' . self::textoHorario($franjas);
         } else {
             $limpios['hora'] = $hora;
         }
-
-        $motivo = $datos['motivo'] ?? null;
-        if (!is_string($motivo) || !in_array($motivo, self::MOTIVOS, true)) {
-            $errores['motivo'] = 'Elegí el motivo';
-        } else {
-            $limpios['motivo'] = $motivo;
-        }
-
-        return [$limpios, $errores];
     }
 }

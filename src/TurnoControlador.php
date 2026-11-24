@@ -7,6 +7,15 @@ class TurnoControlador
     private const TURNO_NO_ENCONTRADO = 'Turno no encontrado';
     private const DIAS_HACIA_ATRAS_CLIENTE = 30;
 
+    // GET /api/pacientes/horario — público (sin sesión). El horario de atención que configuró la
+    // veterinaria: {"apertura": "09:00", "cierre": "19:00", "franjas": [{"apertura": "09:00",
+    // "cierre": "13:00"}, {"apertura": "16:00", "cierre": "19:00"}]} (una franja si es de corrido). Lo usan los formularios de turnos y lo
+    // muestran la portada del sitio y "Contactanos" de los paneles. No es un dato privado.
+    public static function horario(): void
+    {
+        Response::json(HorarioAtencion::actual());
+    }
+
     // GET /api/pacientes/turnos
     // Veterinario: la agenda de un día (?fecha=, por defecto hoy). Cliente: los turnos de sus mascotas.
     public static function listar(): void
@@ -52,7 +61,7 @@ class TurnoControlador
         $sesion = Auth::requerirRol(['VETERINARIO']);
         Auth::verificarCsrf($sesion);
 
-        [$datos, $errores] = ValidadorTurno::validarAlta(Request::json(), date('Y-m-d'));
+        [$datos, $errores] = ValidadorTurno::validarAlta(Request::json(), date('Y-m-d'), HorarioAtencion::actual());
 
         if ($errores !== []) {
             Response::error('Revisá los datos del turno', 400, $errores);
@@ -60,7 +69,7 @@ class TurnoControlador
         }
 
         $repositorio = self::repositorio();
-        $resultado = $repositorio->crear($datos, (int) $sesion['id']);
+        $resultado = $repositorio->crear($datos, (int) $sesion['id'], self::precioPara($datos['fecha'], $datos['hora']));
 
         if ($resultado === 'mascota_inexistente') {
             Response::error('Mascota no encontrada', 404);
@@ -75,7 +84,55 @@ class TurnoControlador
         Response::json(['turno' => $repositorio->detalle($resultado)], 201);
     }
 
+    // POST /api/pacientes/turnos/{id}/reprogramar — el veterinario cambia la fecha y la hora de un turno
+    // programado (el cliente lo pidió por WhatsApp). La mascota y el motivo no cambian.
+    public static function reprogramar(array $parametros): void
+    {
+        $sesion = Auth::requerirRol(['VETERINARIO']);
+        Auth::verificarCsrf($sesion);
+
+        $id = ParametroRuta::entero($parametros, 'id');
+        if ($id === null) {
+            Response::error(self::TURNO_NO_ENCONTRADO, 404);
+            return;
+        }
+
+        [$datos, $errores] = ValidadorTurno::validarReprogramacion(Request::json(), date('Y-m-d'), HorarioAtencion::actual());
+
+        if ($errores !== []) {
+            Response::error('Revisá la fecha y la hora', 400, $errores);
+            return;
+        }
+
+        $repositorio = self::repositorio();
+
+        switch ($repositorio->reprogramar($id, $datos['fecha'], $datos['hora'], self::precioPara($datos['fecha'], $datos['hora']))) {
+            case 'ok':
+                Response::json(['turno' => $repositorio->detalle($id)]);
+                return;
+            case 'inexistente':
+                Response::error(self::TURNO_NO_ENCONTRADO, 404);
+                return;
+            case 'ocupado':
+                Response::error('Ya hay un turno a esa hora', 409, ['hora' => 'Ya tenés un turno a esa hora']);
+                return;
+            default:
+                Response::error('Solo se puede reprogramar un turno programado', 409);
+        }
+    }
+
     // ---------- Ayudas ----------
+
+    // El precio que guarda un turno de esa fecha y hora: el precio base de hoy y, si su franja tiene una
+    // promoción vigente que llega hasta ese día, su descuento.
+    private static function precioPara(string $fecha, string $hora): array
+    {
+        $franja = PrecioTurno::franjaDe($fecha, $hora);
+        $promocion = $franja['dia_semana'] > 6 ? null
+            : (new PromocionFranjaRepositorio(Database::conectar()))->paraTurno($franja['dia_semana'], $franja['franja'], $fecha, date('Y-m-d'));
+
+        return PrecioTurno::paraTurno(PrecioTurno::precioBase(), $promocion);
+    }
 
     private static function cambiarEstado(array $parametros, string $estado, ?string $hastaFecha): void
     {
