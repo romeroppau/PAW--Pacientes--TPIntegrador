@@ -18,10 +18,15 @@ class MascotaRepositorio
 
     // Mascotas activas ordenadas por nombre (hasta 100). Con $duenioId, solo las de ese cliente.
     // Con $buscar, las que tienen ese texto en su nombre o en el del dueño.
-    public function listar(string $hoy, ?int $duenioId, string $buscar = ''): array
+    // $conCalendario: solo las que tienen vacunas o desparasitaciones registradas (el calendario sanitario).
+    public function listar(string $hoy, ?int $duenioId, string $buscar = '', bool $conCalendario = false): array
     {
         $sql = self::SELECT_MASCOTA . ' WHERE m.activo = 1';
         $parametros = [$hoy];
+
+        if ($conCalendario) {
+            $sql .= ' AND EXISTS (SELECT 1 FROM evento_sanitario e WHERE e.mascota_id = m.id)';
+        }
 
         if ($duenioId !== null) {
             $sql .= ' AND m.duenio_id = ?';

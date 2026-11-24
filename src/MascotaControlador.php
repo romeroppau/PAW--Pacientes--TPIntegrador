@@ -13,9 +13,11 @@ class MascotaControlador
         // Se exige sesión, pero no CSRF porque es GET.
         $sesion = Auth::requerirRol(self::ROLES_LECTURA);
         $repositorio = self::repositorio();
+        // ?con_calendario=1: solo las que tienen vacunas o desparasitaciones registradas (Calendario sanitario).
+        $conCalendario = (Request::query()['con_calendario'] ?? '') === '1';
 
         if ($sesion['rol'] !== 'VETERINARIO') {
-            Response::json(['mascotas' => $repositorio->listar(date('Y-m-d'), (int) $sesion['id'])]);
+            Response::json(['mascotas' => $repositorio->listar(date('Y-m-d'), (int) $sesion['id'], '', $conCalendario)]);
             return;
         }
 
@@ -27,7 +29,7 @@ class MascotaControlador
             return;
         }
 
-        Response::json(['mascotas' => $repositorio->listar(date('Y-m-d'), null, trim($buscar))]);
+        Response::json(['mascotas' => $repositorio->listar(date('Y-m-d'), null, trim($buscar), $conCalendario)]);
     }
 
     // GET /api/pacientes/mascotas/{id}
