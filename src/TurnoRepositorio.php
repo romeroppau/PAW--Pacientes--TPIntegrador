@@ -159,13 +159,6 @@ class TurnoRepositorio
             'fecha' => $fila['fecha'],
             'hora' => $fila['hora'],
             'motivo' => $fila['motivo'],
-            // Vacunación o desparasitación: qué se da, del calendario (migración 025). null en los demás
-            // motivos y en los turnos de vacunación de antes de la migración.
-            'evento_sanitario' => $fila['evento_id'] === null ? null : [
-                'id' => (int) $fila['evento_id'],
-                'nombre' => $fila['evento_nombre'],
-                'aplicacion' => $fila['evento_aplicacion'],
-            ],
             'estado' => $fila['estado'],
             'mascota' => [
                 'id' => (int) $fila['mascota_id'],
@@ -187,6 +180,13 @@ class TurnoRepositorio
                 'base' => (float) $fila['precio_consulta'],
                 'descuento' => $fila['descuento'] === null ? null : (int) $fila['descuento'],
                 'final' => PrecioTurno::conDescuento((float) $fila['precio_consulta'], $fila['descuento'] === null ? null : (int) $fila['descuento']),
+            ],
+            // Vacunación o desparasitación: qué se da, del calendario (migración 025). null en los demás
+            // motivos y en los turnos de vacunación de antes de la migración.
+            'evento_sanitario' => $fila['evento_id'] === null ? null : [
+                'id' => (int) $fila['evento_id'],
+                'nombre' => $fila['evento_nombre'],
+                'aplicacion' => $fila['evento_aplicacion'],
             ],
         ], $sentencia->fetchAll());
     }
