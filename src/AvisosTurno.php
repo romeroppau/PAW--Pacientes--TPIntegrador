@@ -74,18 +74,20 @@ class AvisosTurno
         return $dias[(int) date('w', $momento)] . ' ' . date('d/m', $momento) . ' a las ' . substr($hora, 0, 5);
     }
 
-    // "vacunación (Antirrábica)" o "vacunación (Séxtuple, 2.ª dosis)" si el turno es para algo del
-    // calendario (migración 025): el paréntesis del nombre pasa a ir después de una coma.
+    // Todos los motivos del turno (migración 026): "vacunación (Antirrábica), vacunación (Séxtuple, 2.ª dosis)
+    // y control". El paréntesis del nombre de la dosis pasa a ir después de una coma.
     private static function motivo(array $turno): string
     {
-        $motivo = self::MOTIVOS[$turno['motivo']] ?? 'consulta';
-        $evento = $turno['evento_sanitario'] ?? null;
+        $textos = array_map(function (array $m): string {
+            $texto = self::MOTIVOS[$m['motivo']] ?? 'consulta';
+            $evento = $m['evento_sanitario'] ?? null;
 
-        if ($evento === null) {
-            return $motivo;
-        }
+            return $evento === null ? $texto : "$texto (" . preg_replace('/\s*\((.+)\)$/u', ', $1', $evento['nombre']) . ')';
+        }, $turno['motivos'] ?? [['motivo' => $turno['motivo']]]);
 
-        return "$motivo (" . preg_replace('/\s*\((.+)\)$/u', ', $1', $evento['nombre']) . ')';
+        $ultimo = array_pop($textos);
+
+        return $textos === [] ? $ultimo : implode(', ', $textos) . ' y ' . $ultimo;
     }
 
     // " La consulta: $ 12.750 (15 % de descuento)." si el turno guardó su precio (migración 020).

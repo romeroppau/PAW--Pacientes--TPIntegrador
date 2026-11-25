@@ -11,15 +11,12 @@ class TurnoRepositorio
                 m.id AS mascota_id, m.nombre AS mascota_nombre, m.especie,
                 d.id AS duenio_id, d.nombre AS duenio_nombre, d.telefono AS duenio_telefono,
                 v.id AS veterinario_id, v.nombre AS veterinario_nombre,
-                c.id AS consulta_id,
-                es.id AS evento_id, es.nombre AS evento_nombre, ps.aplicacion AS evento_aplicacion
+                c.id AS consulta_id
          FROM turno t
          JOIN mascota m ON m.id = t.mascota_id
          JOIN usuario d ON d.id = m.duenio_id
          JOIN usuario v ON v.id = t.veterinario_id
-         LEFT JOIN consulta c ON c.turno_id = t.id
-         LEFT JOIN evento_sanitario es ON es.id = t.evento_sanitario_id
-         LEFT JOIN plan_sanitario ps ON ps.id = es.plan_sanitario_id";
+         LEFT JOIN consulta c ON c.turno_id = t.id";
 
     public function __construct(private PDO $db)
     {
@@ -59,23 +56,33 @@ class TurnoRepositorio
             return 'mascota_inexistente';
         }
 
+        // El turno y sus motivos (migración 026) en una transacción: o se guardan todos, o ninguno.
+        $this->db->beginTransaction();
         try {
             $this->db->prepare(
-                'INSERT INTO turno (mascota_id, veterinario_id, fecha, hora, motivo, evento_sanitario_id, precio_consulta, descuento, promocion_franja_id)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                'INSERT INTO turno (mascota_id, veterinario_id, fecha, hora, motivo, precio_consulta, descuento, promocion_franja_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
             )->execute([
-                $datos['mascota_id'], $veterinarioId, $datos['fecha'], $datos['hora'], $datos['motivo'], $datos['evento_sanitario_id'] ?? null,
+                $datos['mascota_id'], $veterinarioId, $datos['fecha'], $datos['hora'], $datos['motivo'],
                 $precio['precio_consulta'], $precio['descuento'], $precio['promocion_franja_id'],
             ]);
-        } catch (PDOException $error) {
+            $id = (int) $this->db->lastInsertId();
+
+            $motivo = $this->db->prepare('INSERT INTO turno_motivo (turno_id, motivo, evento_sanitario_id) VALUES (?, ?, ?)');
+            foreach ($datos['motivos'] ?? [['motivo' => $datos['motivo']]] as $m) {
+                $motivo->execute([$id, $m['motivo'], $m['evento_sanitario_id'] ?? null]);
+            }
+            $this->db->commit();
+        } catch (Throwable $error) {
+            $this->db->rollBack();
             // 1062: choca con uq_turno_veterinario_horario (migración 004).
-            if (($error->errorInfo[1] ?? null) === 1062) {
+            if ($error instanceof PDOException && ($error->errorInfo[1] ?? null) === 1062) {
                 return 'ocupado';
             }
             throw $error;
         }
 
-        return (int) $this->db->lastInsertId();
+        return $id;
     }
 
     // Cambia la fecha y la hora de un turno PROGRAMADO, con el precio de la franja nueva (reprogramar es
@@ -153,12 +160,18 @@ class TurnoRepositorio
     {
         $sentencia = $this->db->prepare($sql);
         $sentencia->execute($parametros);
+        $filas = $sentencia->fetchAll();
+        // Todos los motivos de cada turno (migración 026), con una sola consulta más.
+        $motivos = MotivosTurno::deTurnos($this->db, array_column($filas, 'motivo', 'id'));
 
         return array_map(fn (array $fila): array => [
             'id' => (int) $fila['id'],
             'fecha' => $fila['fecha'],
             'hora' => $fila['hora'],
+            // El motivo principal (MotivosTurno::principal) y todos los motivos, cada uno con el evento del
+            // calendario que se da (vacunación o desparasitación) o null.
             'motivo' => $fila['motivo'],
+            'motivos' => $motivos[(int) $fila['id']],
             'estado' => $fila['estado'],
             'mascota' => [
                 'id' => (int) $fila['mascota_id'],
@@ -181,13 +194,6 @@ class TurnoRepositorio
                 'descuento' => $fila['descuento'] === null ? null : (int) $fila['descuento'],
                 'final' => PrecioTurno::conDescuento((float) $fila['precio_consulta'], $fila['descuento'] === null ? null : (int) $fila['descuento']),
             ],
-            // Vacunación o desparasitación: qué se da, del calendario (migración 025). null en los demás
-            // motivos y en los turnos de vacunación de antes de la migración.
-            'evento_sanitario' => $fila['evento_id'] === null ? null : [
-                'id' => (int) $fila['evento_id'],
-                'nombre' => $fila['evento_nombre'],
-                'aplicacion' => $fila['evento_aplicacion'],
-            ],
-        ], $sentencia->fetchAll());
+        ], $filas);
     }
 }
