@@ -8,11 +8,35 @@ class ValidadorTurnoTest extends TestCase
 
     public function testAceptaUnTurnoValido(): void
     {
-        $datos = ['mascota_id' => 101, 'fecha' => self::HOY, 'hora' => '17:30', 'motivo' => 'VACUNACION'];
+        $datos = ['mascota_id' => 101, 'fecha' => self::HOY, 'hora' => '17:30', 'motivo' => 'VACUNACION', 'plan_sanitario_id' => 5];
         [$limpios, $errores] = ValidadorTurno::validarAlta($datos, self::HOY);
 
         $this->assertSame([], $errores);
         $this->assertSame($datos, $limpios);
+    }
+
+    // Migración 025: vacunación y desparasitación dicen cuál (un ítem del plan sanitario).
+    public function testVacunacionYDesparasitacionPidenCual(): void
+    {
+        $base = ['mascota_id' => 101, 'fecha' => self::HOY, 'hora' => '17:30'];
+
+        [, $errores] = ValidadorTurno::validarAlta($base + ['motivo' => 'VACUNACION'], self::HOY);
+        $this->assertSame(['plan_sanitario_id' => 'Elegí la vacuna'], $errores);
+
+        [, $errores] = ValidadorTurno::validarAlta($base + ['motivo' => 'DESPARASITACION', 'plan_sanitario_id' => '1'], self::HOY);
+        $this->assertSame(['plan_sanitario_id' => 'Elegí la desparasitación'], $errores);
+    }
+
+    public function testLosMotivosNuevosNoPidenNadaDelCalendario(): void
+    {
+        foreach (['CASTRACION', 'CIRUGIA', 'CONTROL', 'URGENCIA', 'CONSULTA'] as $motivo) {
+            $datos = ['mascota_id' => 101, 'fecha' => self::HOY, 'hora' => '17:30', 'motivo' => $motivo, 'plan_sanitario_id' => 5];
+            [$limpios, $errores] = ValidadorTurno::validarAlta($datos, self::HOY);
+
+            $this->assertSame([], $errores, $motivo);
+            // Si llega, no se usa: el turno no queda atado al calendario.
+            $this->assertArrayNotHasKey('plan_sanitario_id', $limpios, $motivo);
+        }
     }
 
     public function testMarcaCadaCampoInvalido(): void

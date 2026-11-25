@@ -64,7 +64,8 @@ class ValidadorConsulta
     }
 
     // Requisitos para finalizar, sobre la consulta tal como está guardada:
-    // diagnóstico no vacío, valor base cargado y un total que entre en la factura.
+    // diagnóstico no vacío, valor base cargado, un total que entre en la factura y, si el turno es para
+    // una vacuna o desparasitación del calendario, su insumo cargado.
     public static function validarParaFinalizar(array $consulta): array
     {
         $errores = [];
@@ -81,6 +82,15 @@ class ValidadorConsulta
             $errores[] = 'El valor base es obligatorio para finalizar';
         } elseif ((float) $valorBase > self::VALOR_BASE_MAXIMO) {
             $errores[] = 'El valor base no puede superar ' . number_format(self::VALOR_BASE_MAXIMO, 2, ',', '.');
+        }
+
+        // Vacunación o desparasitación (migración 025): tiene que llevar el insumo de lo que se da.
+        $evento = $consulta['evento_sanitario'] ?? null;
+        if ($evento !== null && $evento['aplicacion'] !== null) {
+            $cargado = array_filter($consulta['insumos'] ?? [], fn (array $i): bool => ($i['aplicacion'] ?? null) === $evento['aplicacion']);
+            if ($cargado === []) {
+                $errores[] = "Esta consulta es para {$evento['nombre']}: cargá en los insumos la dosis que se da.";
+            }
         }
 
         // El valor base puede estar dentro del máximo y el total pasarlo al sumar los ítems. Se valida

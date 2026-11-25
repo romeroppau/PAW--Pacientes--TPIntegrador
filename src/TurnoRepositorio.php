@@ -11,12 +11,15 @@ class TurnoRepositorio
                 m.id AS mascota_id, m.nombre AS mascota_nombre, m.especie,
                 d.id AS duenio_id, d.nombre AS duenio_nombre, d.telefono AS duenio_telefono,
                 v.id AS veterinario_id, v.nombre AS veterinario_nombre,
-                c.id AS consulta_id
+                c.id AS consulta_id,
+                es.id AS evento_id, es.nombre AS evento_nombre, ps.aplicacion AS evento_aplicacion
          FROM turno t
          JOIN mascota m ON m.id = t.mascota_id
          JOIN usuario d ON d.id = m.duenio_id
          JOIN usuario v ON v.id = t.veterinario_id
-         LEFT JOIN consulta c ON c.turno_id = t.id";
+         LEFT JOIN consulta c ON c.turno_id = t.id
+         LEFT JOIN evento_sanitario es ON es.id = t.evento_sanitario_id
+         LEFT JOIN plan_sanitario ps ON ps.id = es.plan_sanitario_id";
 
     public function __construct(private PDO $db)
     {
@@ -58,10 +61,10 @@ class TurnoRepositorio
 
         try {
             $this->db->prepare(
-                'INSERT INTO turno (mascota_id, veterinario_id, fecha, hora, motivo, precio_consulta, descuento, promocion_franja_id)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+                'INSERT INTO turno (mascota_id, veterinario_id, fecha, hora, motivo, evento_sanitario_id, precio_consulta, descuento, promocion_franja_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
             )->execute([
-                $datos['mascota_id'], $veterinarioId, $datos['fecha'], $datos['hora'], $datos['motivo'],
+                $datos['mascota_id'], $veterinarioId, $datos['fecha'], $datos['hora'], $datos['motivo'], $datos['evento_sanitario_id'] ?? null,
                 $precio['precio_consulta'], $precio['descuento'], $precio['promocion_franja_id'],
             ]);
         } catch (PDOException $error) {
@@ -156,6 +159,13 @@ class TurnoRepositorio
             'fecha' => $fila['fecha'],
             'hora' => $fila['hora'],
             'motivo' => $fila['motivo'],
+            // Vacunación o desparasitación: qué se da, del calendario (migración 025). null en los demás
+            // motivos y en los turnos de vacunación de antes de la migración.
+            'evento_sanitario' => $fila['evento_id'] === null ? null : [
+                'id' => (int) $fila['evento_id'],
+                'nombre' => $fila['evento_nombre'],
+                'aplicacion' => $fila['evento_aplicacion'],
+            ],
             'estado' => $fila['estado'],
             'mascota' => [
                 'id' => (int) $fila['mascota_id'],
