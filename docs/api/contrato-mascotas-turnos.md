@@ -31,6 +31,7 @@ mascotas. Etapa 3: el alta de turnos (veterinario) y el alta, la edición y la b
 ```json
 {
   "id": 101, "fecha": "2026-11-05", "hora": "08:00", "motivo": "CONSULTA", "estado": "PROGRAMADO",
+  "evento_sanitario": null,
   "mascota": { "id": 101, "nombre": "Firulais", "especie": "PERRO" },
   "duenio": { "id": 102, "nombre": "Cliente de Prueba", "telefono": "1155550102" },
   "veterinario": { "id": 101, "nombre": "Veterinaria de Prueba" },
@@ -100,7 +101,21 @@ mascotas. Etapa 3: el alta de turnos (veterinario) y el alta, la edición y la b
 el veterinario del turno es el de la sesión.
 
 Cuerpo: `{"mascota_id": 101, "fecha": "2026-11-10", "hora": "10:30", "motivo": "CONSULTA"}`.
-`motivo`: `CONSULTA`, `VACUNACION` o `CHEQUEO_ADOPCION`. El turno queda `PROGRAMADO`.
+`motivo`: `CONSULTA`, `VACUNACION`, `DESPARASITACION`, `CASTRACION`, `CIRUGIA`, `CONTROL`, `URGENCIA` o
+`CHEQUEO_ADOPCION` (los nuevos desde la migración 025). El turno queda `PROGRAMADO`.
+
+**Vacunación y desparasitación (migración 025).** El cuerpo lleva además `plan_sanitario_id`: cuál
+(un ítem del plan de la especie, ver `contrato-calendario.md`). El turno se saca solo si:
+- el ítem es de la especie de la mascota y del tipo del motivo (400 si no);
+- está en el calendario de la mascota sin dar (409: `"En el calendario de Luna no figura que se le tenga
+  que dar: Antirrábica. Cargala primero en el calendario."`);
+- no hay una dosis anterior de la misma vacuna sin dar (409: `"Antes de Séxtuple (3.ª dosis) tiene que
+  darse Séxtuple (2.ª dosis). Si ya se la dieron en otra veterinaria, marcala como dada en el calendario."`);
+- no tiene otro turno programado o en atención para lo mismo (409).
+
+El mensaje de los 409 viene también en `campos.plan_sanitario_id`. El turno queda atado a ese evento
+del calendario: lo devuelve en `evento_sanitario` (`{"id", "nombre", "aplicacion"}`, `null` en los demás
+motivos) y, al finalizar la consulta, queda dado.
 - 201: `{"turno": { ... }}`
 - 400: un error por campo (`mascota_id` no entero; fecha inválida, anterior a hoy o de más de un año adelante; hora que no es `HH:MM` o fuera del horario de atención; motivo inválido). El horario lo configura la veterinaria (ver "Horario de atención"); si no lo cambió, es de 08:00 a 20:00 y el último turno puede empezar a las 19:59.
 - 404: la mascota no existe o está dada de baja.
