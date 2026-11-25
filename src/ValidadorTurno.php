@@ -6,7 +6,10 @@
 // desde su panel); si no lo pasa, es el de siempre: de HORA_APERTURA a HORA_CIERRE.
 class ValidadorTurno
 {
-    public const MOTIVOS = ['CONSULTA', 'VACUNACION', 'CHEQUEO_ADOPCION'];
+    // Migración 025: más motivos. CHEQUEO_ADOPCION lo usan los chequeos de adopción.
+    public const MOTIVOS = ['CONSULTA', 'VACUNACION', 'DESPARASITACION', 'CASTRACION', 'CIRUGIA', 'CONTROL', 'URGENCIA', 'CHEQUEO_ADOPCION'];
+    // Los motivos que dan algo del calendario sanitario: el turno dice cuál (plan_sanitario_id).
+    public const MOTIVOS_DEL_CALENDARIO = ['VACUNACION', 'DESPARASITACION'];
     // Horario por defecto (el mismo que figura en el catálogo de configuración de Backend).
     public const HORA_APERTURA = '08:00';
     public const HORA_CIERRE = '20:00';
@@ -31,6 +34,17 @@ class ValidadorTurno
             $errores['motivo'] = 'Elegí el motivo';
         } else {
             $limpios['motivo'] = $motivo;
+        }
+
+        // Vacunación o desparasitación: cuál (un ítem del plan sanitario). Que esté en el calendario de
+        // la mascota lo revisa CalendarioSanitario::eventoParaTurno, con la base.
+        if (isset($limpios['motivo']) && in_array($limpios['motivo'], self::MOTIVOS_DEL_CALENDARIO, true)) {
+            $plan = $datos['plan_sanitario_id'] ?? null;
+            if (!is_int($plan) || $plan <= 0) {
+                $errores['plan_sanitario_id'] = $limpios['motivo'] === 'VACUNACION' ? 'Elegí la vacuna' : 'Elegí la desparasitación';
+            } else {
+                $limpios['plan_sanitario_id'] = $plan;
+            }
         }
 
         return [$limpios, $errores];

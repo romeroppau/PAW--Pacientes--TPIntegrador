@@ -10,11 +10,15 @@ class ConsultaRepositorio
     private const TIPOS = [
         'insumos' => [
             'item' => 'item_insumo_consulta', 'catalogo' => 'insumo',
-            'columna' => 'insumo_id', 'precio' => 'costo_unitario', 'origen' => 'costo'
+            'columna' => 'insumo_id', 'precio' => 'costo_unitario', 'origen' => 'costo',
+            // Solo en la consulta abierta (detalle): qué aplicación del calendario es el insumo
+            // (migración 025) y su stock, para avisar si falta. La factura y el historial no los llevan.
+            'extra' => ', c.aplicacion, c.stock'
         ],
         'productos' => [
             'item' => 'item_producto_consulta', 'catalogo' => 'producto',
-            'columna' => 'producto_id', 'precio' => 'precio_unitario', 'origen' => 'precio'
+            'columna' => 'producto_id', 'precio' => 'precio_unitario', 'origen' => 'precio',
+            'extra' => ''
         ]
     ];
 
@@ -61,8 +65,11 @@ class ConsultaRepositorio
     {
         $consulta = $this->fila(
             'SELECT c.id, c.turno_id, c.diagnostico, c.observaciones, c.valor_base, c.estado,
-                    c.finalizada_en, t.mascota_id, t.motivo, t.precio_consulta AS precio_lista, t.descuento
+                    c.finalizada_en, t.mascota_id, t.motivo, t.precio_consulta AS precio_lista, t.descuento,
+                    es.id AS evento_id, es.nombre AS evento_nombre, ps.aplicacion AS evento_aplicacion
              FROM consulta c JOIN turno t ON t.id = c.turno_id
+             LEFT JOIN evento_sanitario es ON es.id = t.evento_sanitario_id
+             LEFT JOIN plan_sanitario ps ON ps.id = es.plan_sanitario_id
              WHERE c.id = ?',
             [$id]
         );
@@ -77,8 +84,21 @@ class ConsultaRepositorio
             $consulta['precio_lista'] = null;
         }
 
-        $consulta['insumos'] = $this->items($id, 'insumos');
-        $consulta['productos'] = $this->items($id, 'productos');
+        $consulta['insumos'] = $this->items($id, 'insumos', true);
+        $consulta['productos'] = $this->items($id, 'productos', true);
+
+        // Vacunación o desparasitación (migración 025): qué se da y los insumos que sirven para darla
+        // (con su stock), para que la veterinaria cargue uno. Sin cargarlo no se finaliza.
+        $consulta['evento_sanitario'] = $consulta['evento_id'] === null ? null : [
+            'id' => (int) $consulta['evento_id'],
+            'nombre' => $consulta['evento_nombre'],
+            'aplicacion' => $consulta['evento_aplicacion'],
+            'insumos' => array_map(fn (array $i): array => ['id' => (int) $i['id'], 'nombre' => $i['nombre'], 'stock' => (int) $i['stock']], $this->filas(
+                'SELECT id, nombre, stock FROM insumo WHERE aplicacion = ? AND activo = 1 ORDER BY stock DESC, nombre',
+                [$consulta['evento_aplicacion']]
+            )),
+        ];
+        unset($consulta['evento_id'], $consulta['evento_nombre'], $consulta['evento_aplicacion']);
         $consulta['total'] = FacturaConsulta::calcular(
             $consulta['valor_base'],
             $consulta['insumos'],
@@ -88,13 +108,15 @@ class ConsultaRepositorio
         return $consulta;
     }
 
-    // Ítems de la consulta. $tipo: 'insumos' o 'productos'.
-    public function items(int $consultaId, string $tipo): array
+    // Ítems de la consulta. $tipo: 'insumos' o 'productos'. $conExtra: con la aplicación y el stock de
+    // cada insumo (solo para la veterinaria, en la consulta).
+    public function items(int $consultaId, string $tipo, bool $conExtra = false): array
     {
         $t = self::TIPOS[$tipo];
+        $extra = $conExtra ? $t['extra'] : '';
 
         return $this->filas(
-            "SELECT i.id, i.{$t['columna']}, c.nombre, i.cantidad, i.{$t['precio']}
+            "SELECT i.id, i.{$t['columna']}, c.nombre, i.cantidad, i.{$t['precio']}{$extra}
              FROM {$t['item']} i JOIN {$t['catalogo']} c ON c.id = i.{$t['columna']}
              WHERE i.consulta_id = ? ORDER BY i.id",
             [$consultaId]
@@ -200,13 +222,13 @@ class ConsultaRepositorio
     }
 
     // Cierra la consulta en una transacción: factura, consulta FINALIZADA, turno ATENDIDO y, si el turno
-    // era de vacunación, la vacuna que le tocaba a la mascota queda aplicada en el calendario.
+    // era para algo del calendario (vacuna o desparasitación), queda dado en el calendario.
     // Devuelve la factura, o null si la consulta no existe o ya estaba finalizada.
     public function finalizar(int $consultaId): ?array
     {
         return $this->enTransaccion(function () use ($consultaId): ?array {
             $consulta = $this->fila(
-                'SELECT c.valor_base, c.estado, c.turno_id, t.motivo, t.mascota_id
+                'SELECT c.valor_base, c.estado, c.turno_id, t.motivo, t.mascota_id, t.evento_sanitario_id
                  FROM consulta c JOIN turno t ON t.id = c.turno_id
                  WHERE c.id = ? FOR UPDATE',
                 [$consultaId]
@@ -248,15 +270,16 @@ class ConsultaRepositorio
             );
             $this->ejecutar("UPDATE turno SET estado = 'ATENDIDO' WHERE id = ?", [$consulta['turno_id']]);
 
-            // Turno de vacunación: se marca en el calendario la vacuna que le tocaba a la mascota.
+            // Se marca en el calendario lo que se dio: el evento del turno (migración 025) o, en un turno
+            // de vacunación de antes de la migración, la vacuna sin dar más vieja de la mascota.
             // marcarAplicado() no abre otra transacción: si algo falla, se deshace todo junto con la factura.
-            if ($consulta['motivo'] === 'VACUNACION') {
-                $calendario = new CalendarioSanitario($this->db);
-                $eventoId = $calendario->vacunaPendiente((int) $consulta['mascota_id']);
+            $calendario = new CalendarioSanitario($this->db);
+            $eventoId = $consulta['evento_sanitario_id'] !== null
+                ? (int) $consulta['evento_sanitario_id']
+                : ($consulta['motivo'] === 'VACUNACION' ? $calendario->vacunaPendiente((int) $consulta['mascota_id']) : null);
 
-                if ($eventoId !== null) {
-                    $calendario->marcarAplicado($eventoId, $consultaId);
-                }
+            if ($eventoId !== null) {
+                $calendario->marcarAplicado($eventoId, $consultaId);
             }
 
             return $this->factura($consultaId);
