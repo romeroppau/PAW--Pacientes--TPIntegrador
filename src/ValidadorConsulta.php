@@ -84,13 +84,19 @@ class ValidadorConsulta
             $errores[] = 'El valor base no puede superar ' . number_format(self::VALOR_BASE_MAXIMO, 2, ',', '.');
         }
 
-        // Vacunación o desparasitación (migración 025): tiene que llevar el insumo de lo que se da.
-        $evento = $consulta['evento_sanitario'] ?? null;
-        if ($evento !== null && $evento['aplicacion'] !== null) {
+        // Cada vacuna o desparasitación del turno (migraciones 025 y 026) tiene que llevar su insumo.
+        $faltan = [];
+        foreach ($consulta['eventos_sanitarios'] ?? [] as $evento) {
+            if ($evento['aplicacion'] === null) {
+                continue;
+            }
             $cargado = array_filter($consulta['insumos'] ?? [], fn (array $i): bool => ($i['aplicacion'] ?? null) === $evento['aplicacion']);
             if ($cargado === []) {
-                $errores[] = "Esta consulta es para {$evento['nombre']}: cargá en los insumos la dosis que se da.";
+                $faltan[] = $evento['nombre'];
             }
+        }
+        if ($faltan !== []) {
+            $errores[] = 'Falta cargar en los insumos la dosis de: ' . implode(', ', $faltan) . '.';
         }
 
         // El valor base puede estar dentro del máximo y el total pasarlo al sumar los ítems. Se valida

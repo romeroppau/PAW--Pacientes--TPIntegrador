@@ -28,15 +28,8 @@ class CalendarioControlador
             return;
         }
 
-        $calendario = new CalendarioSanitario($db);
-
-        // Una mascota que todavía no tiene calendario (por ejemplo, cargada antes de que existiera)
-        // lo recibe la primera vez que alguien lo pide.
-        if ($calendario->eventos($id, $hoy) === []) {
-            $calendario->generarPara($id, $hoy);
-        }
-
-        Response::json(self::respuesta($calendario, $mascota, $hoy));
+        // Si no tiene eventos, la veterinaria todavía no le cargó el calendario (no se arma solo, 25/11).
+        Response::json(self::respuesta(new CalendarioSanitario($db), $mascota, $hoy));
     }
 
     // POST /api/pacientes/mascotas/{id}/calendario-sanitario — {"plan_sanitario_id": 5, "fecha_programada": "2026-12-01"}
@@ -55,9 +48,13 @@ class CalendarioControlador
                 return false;
             }
 
-            switch ($calendario->agregar($mascota['id'], $datos['plan_sanitario_id'], $datos['fecha_programada'])) {
+            $faltan = [];
+            switch ($calendario->agregar($mascota['id'], $datos['plan_sanitario_id'], $datos['fecha_programada'], $faltan)) {
                 case 'ok':
                     return true;
+                case 'dosis_anteriores':
+                    Response::error('Para cargarla, primero cargá y marcá como dadas: ' . implode(', ', $faltan), 409);
+                    return false;
                 case 'plan_invalido':
                     Response::error('Esa vacuna o desparasitación no es para la especie de la mascota', 400, ['plan_sanitario_id' => 'Elegí una de la lista']);
                     return false;

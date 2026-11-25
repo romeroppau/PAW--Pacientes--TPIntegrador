@@ -65,8 +65,7 @@ class MascotaRepositorio
                 $foto, $fotoTipo
             ]);
             $id = (int) $this->db->lastInsertId();
-
-            (new CalendarioSanitario($this->db))->generarPara($id, $hoy);
+            // El calendario sanitario no se arma solo: lo carga la veterinaria (25/11).
             $this->db->commit();
 
             return $id;
@@ -136,8 +135,6 @@ class MascotaRepositorio
             [$foto, $fotoTipo] = $datos['foto'] ?? [null, null];
             $this->db->prepare('UPDATE mascota SET foto = ?, foto_tipo = ? WHERE id = ?')->execute([$foto, $fotoTipo, $id]);
         }
-
-        (new CalendarioSanitario($this->db))->generarPara($id, $hoy);
     }
 
     // La foto de una mascota: [bytes, tipo], o null si no tiene.

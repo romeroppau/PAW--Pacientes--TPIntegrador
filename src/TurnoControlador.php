@@ -68,12 +68,15 @@ class TurnoControlador
             return;
         }
 
-        // Vacunación o desparasitación (migración 025): tiene que estar en el calendario de la mascota sin
-        // dar, sin una dosis anterior pendiente y sin otro turno para lo mismo.
-        $datos['evento_sanitario_id'] = null;
-        if (isset($datos['plan_sanitario_id'])) {
-            $evento = (new CalendarioSanitario(Database::conectar()))
-                ->eventoParaTurno($datos['mascota_id'], $datos['plan_sanitario_id'], $datos['motivo']);
+        // Cada vacunación o desparasitación (migraciones 025 y 026): tiene que estar en el calendario de la
+        // mascota sin dar, sin una dosis anterior pendiente y sin otro turno para lo mismo.
+        $calendario = new CalendarioSanitario(Database::conectar());
+        foreach ($datos['motivos'] as $i => $motivo) {
+            if (!isset($motivo['plan_sanitario_id'])) {
+                continue;
+            }
+
+            $evento = $calendario->eventoParaTurno($datos['mascota_id'], $motivo['plan_sanitario_id'], $motivo['motivo']);
 
             if ($evento['estado'] === 'mascota_inexistente') {
                 Response::error('Mascota no encontrada', 404);
@@ -86,7 +89,7 @@ class TurnoControlador
                 return;
             }
 
-            $datos['evento_sanitario_id'] = $evento['evento_id'];
+            $datos['motivos'][$i]['evento_sanitario_id'] = $evento['evento_id'];
         }
 
         $repositorio = self::repositorio();

@@ -13,19 +13,12 @@ fecha en que le toca y la fecha en que se aplicó.
 - Los errores devuelven `{"error": "mensaje", "campos": {}}`, sin detalles internos.
 - Fechas `AAAA-MM-DD`. "Hoy" es la fecha de Argentina.
 
-## Cómo se arma el calendario (`CalendarioSanitario::generarPara`)
-- Se usa el plan de la especie de la mascota y su fecha de nacimiento. Sin fecha de nacimiento no se
-  puede armar: el calendario queda vacío.
-- La primera fecha de cada ítem del plan es el nacimiento más `edad_inicio_semanas`.
-- Si esa fecha ya pasó:
-  - un ítem que **no se repite** (por ejemplo, las dosis de cachorro) no se agrega: la mascota ya
-    pasó esa edad y no sabemos si se lo dieron;
-  - un ítem que **se repite** se agrega en la próxima fecha que le toque desde hoy.
-- No se repite un ítem del plan que la mascota ya tiene en su calendario. Llamarlo dos veces no duplica nada.
-- Se llama al dar de alta una mascota (etapa 3) y, si una mascota todavía no tiene calendario, la
-  primera vez que alguien lo pide.
-- Solo usa los ítems con `automatico = 1`. Los opcionales (tos de las perreras, leucemia felina) los
-  agrega el veterinario (migración 025).
+## Cómo se arma el calendario
+- **No se arma solo** (25/11): ni al dar de alta la mascota ni al pedirlo. Lo carga la veterinaria, de a
+  una vacuna o desparasitación (ver "Editar el calendario"). Hasta entonces `eventos` viene vacío y la
+  página le dice al cliente (también al que adoptó) que la veterinaria todavía no lo cargó.
+- El plan de la especie (`plan_sanitario`) es la lista de lo que se puede cargar. Los ítems con
+  `automatico = 0` (tos de las perreras, leucemia felina) son opcionales.
 
 ## Aplicar una vacuna (`CalendarioSanitario::marcarAplicado`)
 - Lo llama la consulta (rol 4) al finalizar un turno de `VACUNACION` o `DESPARASITACION`, dentro de su
@@ -74,7 +67,7 @@ Una mascota tiene las **vacunas al día** si no tiene ninguna vacuna `VENCIDO` (
 Los eventos van ordenados por fecha programada. Desde la migración 025:
 - `en_consulta`: `true` si se dio en una consulta de HuellaVet; `false` si se marcó a mano (por ejemplo,
   se la dieron en otra veterinaria) o si todavía no se dio.
-- `turno`: el turno programado o en atención para darla, o `null`.
+- `turno`: el turno programado o en atención para darla (por sus motivos, `turno_motivo`), o `null`.
 - `plan`: los ítems del plan de la especie, para agregarlos al calendario y elegir la vacuna de un turno.
   `aplicacion` dice qué vacuna es (la misma que `insumo.aplicacion`) y `orden`, qué dosis.
 - 404: la mascota no existe o es de otro cliente.
@@ -89,8 +82,9 @@ el evento ya está dado (`"Esa vacuna o desparasitación ya está dada: no se ca
 `POST /api/pacientes/mascotas/{id}/calendario-sanitario` — `{"plan_sanitario_id": 13, "fecha_programada": "2026-12-01"}`
 - 400: `campos.plan_sanitario_id` (falta, o el ítem es de otra especie) o `campos.fecha_programada`
   (fecha inválida, anterior a hoy o de más de 3 años adelante).
-- 409: ya está en el calendario sin dar (`"Ya está en el calendario y todavía no se dio..."`), o es de
-  una sola vez y ya se dio.
+- 409: las dosis anteriores de la misma vacuna no están cargadas y dadas (`"Para cargarla, primero cargá
+  y marcá como dadas: Séxtuple (1.ª dosis), Séxtuple (2.ª dosis)"`); ya está en el calendario sin dar
+  (`"Ya está en el calendario y todavía no se dio..."`); o es de una sola vez y ya se dio.
 
 ### Marcar como dada (fuera de una consulta)
 `POST /api/pacientes/mascotas/{id}/calendario-sanitario/{eventoId}/dada` — `{"fecha_aplicada": "2026-11-20"}`
@@ -109,7 +103,10 @@ el evento ya está dado (`"Esa vacuna o desparasitación ya está dada: no se ca
 - Solo una que no se dio. 409 si tiene un turno programado o en atención: primero hay que cancelarlo.
 
 ## Orden de las dosis
-Una dosis no se agenda ni se marca como dada si la mascota tiene **en su calendario** una dosis
-anterior de la misma vacuna (`aplicacion` igual, `orden` menor) sin dar. Las dosis que no están en el
-calendario no frenan: un perro adulto no tiene las de cachorro. Para "arrancar por la segunda" (la
-primera se la dieron en otra veterinaria), se marca la primera como dada.
+- **Agregar:** una dosis se carga solo si todas las anteriores de la misma vacuna (`aplicacion` igual,
+  `orden` menor) están en el calendario **y dadas** (en HuellaVet o marcadas a mano). Para la 3.ª
+  séxtuple: cargar la 1.ª y la 2.ª, y marcarlas como dadas. Vale también para el refuerzo anual.
+- **Turno y marcar como dada:** no se hace si la mascota tiene en el calendario una dosis anterior de
+  la misma vacuna sin dar (por ejemplo, en calendarios cargados antes de esta regla).
+- Para "arrancar por la segunda" (la primera se la dieron en otra veterinaria): cargar la primera,
+  marcarla como dada y después cargar la segunda.

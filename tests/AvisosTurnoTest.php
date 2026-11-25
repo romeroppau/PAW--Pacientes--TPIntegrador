@@ -49,14 +49,21 @@ class AvisosTurnoTest extends TestCase
         $this->assertStringContainsString('Tenés turno de consulta para Michi', $avisos[0]['mensaje']);
     }
 
-    // Migración 025: si el turno es para algo del calendario, el aviso dice qué.
-    public function testElAvisoDiceQueVacunaSeDa(): void
+    // Migraciones 025 y 026: el aviso dice todos los motivos, y qué vacuna de cada uno.
+    public function testElAvisoDiceTodosLosMotivos(): void
     {
-        $avisos = AvisosTurno::asignado($this->turno(['evento_sanitario' => ['id' => 9, 'nombre' => 'Antirrábica', 'aplicacion' => 'ANTIRRABICA']]));
+        $antirrabica = ['motivo' => 'VACUNACION', 'evento_sanitario' => ['id' => 9, 'nombre' => 'Antirrábica', 'aplicacion' => 'ANTIRRABICA']];
+        $leucemia = ['motivo' => 'VACUNACION', 'evento_sanitario' => ['id' => 10, 'nombre' => 'Leucemia felina (2.ª dosis)', 'aplicacion' => 'LEUCEMIA_FELINA']];
+        $control = ['motivo' => 'CONTROL', 'evento_sanitario' => null];
+
+        $avisos = AvisosTurno::asignado($this->turno(['motivos' => [$antirrabica]]));
         $this->assertStringStartsWith('Tenés turno de vacunación (Antirrábica) para Michi', $avisos[0]['mensaje']);
 
-        $avisos = AvisosTurno::asignado($this->turno(['evento_sanitario' => ['id' => 9, 'nombre' => 'Leucemia felina (2.ª dosis)', 'aplicacion' => 'LEUCEMIA_FELINA']]));
-        $this->assertStringStartsWith('Tenés turno de vacunación (Leucemia felina, 2.ª dosis) para Michi', $avisos[0]['mensaje']);
+        $avisos = AvisosTurno::asignado($this->turno(['motivos' => [$antirrabica, $leucemia, $control]]));
+        $this->assertStringStartsWith(
+            'Tenés turno de vacunación (Antirrábica), vacunación (Leucemia felina, 2.ª dosis) y control para Michi',
+            $avisos[0]['mensaje']
+        );
 
         $avisos = AvisosTurno::asignado($this->turno(['motivo' => 'CASTRACION']));
         $this->assertStringStartsWith('Tenés turno de castración para Michi', $avisos[0]['mensaje']);

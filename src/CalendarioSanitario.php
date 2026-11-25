@@ -6,6 +6,8 @@
 // Desde la migración 025 (25/11) el calendario manda: un turno de vacunación o desparasitación solo se
 // saca para un evento del calendario que todavía no se dio (eventoParaTurno), respetando el orden de
 // las dosis, y el veterinario edita el calendario (agregar, marcarDada, cambiarFecha, quitar).
+// El calendario no se arma solo: lo carga el veterinario, de a una, y una dosis se agrega recién con
+// las anteriores de la misma vacuna dadas (25/11).
 // Las reglas de fechas y estados (los métodos static) no usan la base: se prueban con PHPUnit.
 class CalendarioSanitario
 {
@@ -14,46 +16,6 @@ class CalendarioSanitario
 
     public function __construct(private PDO $db)
     {
-    }
-
-    // Agrega a la mascota los ítems del plan de su especie que todavía no tiene.
-    // Devuelve cuántos eventos agregó (0 si la mascota no existe o no tiene fecha de nacimiento).
-    public function generarPara(int $mascotaId, ?string $hoy = null): int
-    {
-        $hoy ??= date('Y-m-d');
-        $mascota = $this->fila('SELECT especie, fecha_nacimiento FROM mascota WHERE id = ?', [$mascotaId]);
-
-        if ($mascota === null || $mascota['fecha_nacimiento'] === null) {
-            return 0;
-        }
-
-        // Ítems del plan de su especie que la mascota no tiene, ni aplicados ni pendientes.
-        $plan = $this->filas(
-            'SELECT p.id, p.tipo, p.nombre, p.edad_inicio_semanas, p.repetir_cada_meses
-             FROM plan_sanitario p
-             WHERE p.especie = ? AND p.automatico = 1
-               AND NOT EXISTS (SELECT 1 FROM evento_sanitario e WHERE e.mascota_id = ? AND e.plan_sanitario_id = p.id)
-             ORDER BY p.edad_inicio_semanas, p.id',
-            [$mascota['especie'], $mascotaId]
-        );
-
-        $agregados = 0;
-
-        foreach ($plan as $item) {
-            $fecha = self::fechaParaPlan(
-                $mascota['fecha_nacimiento'],
-                (int) $item['edad_inicio_semanas'],
-                $item['repetir_cada_meses'] === null ? null : (int) $item['repetir_cada_meses'],
-                $hoy
-            );
-
-            if ($fecha !== null) {
-                $this->insertarEvento($mascotaId, (int) $item['id'], $item['tipo'], $item['nombre'], $fecha);
-                $agregados++;
-            }
-        }
-
-        return $agregados;
     }
 
     // Marca un evento como aplicado hoy en una consulta. Si su ítem del plan se repite, agrega el
@@ -86,9 +48,11 @@ class CalendarioSanitario
         $eventos = $this->filas(
             "SELECT e.id, e.tipo, e.nombre, e.fecha_programada, e.fecha_aplicada, e.consulta_id,
                     e.plan_sanitario_id, p.aplicacion,
-                    (SELECT t.id FROM turno t WHERE t.evento_sanitario_id = e.id AND t.estado IN ('PROGRAMADO', 'EN_ATENCION')
+                    (SELECT t.id FROM turno_motivo tm JOIN turno t ON t.id = tm.turno_id
+                     WHERE tm.evento_sanitario_id = e.id AND t.estado IN ('PROGRAMADO', 'EN_ATENCION')
                      ORDER BY t.fecha, t.hora LIMIT 1) AS turno_id,
-                    (SELECT t.fecha FROM turno t WHERE t.evento_sanitario_id = e.id AND t.estado IN ('PROGRAMADO', 'EN_ATENCION')
+                    (SELECT t.fecha FROM turno_motivo tm JOIN turno t ON t.id = tm.turno_id
+                     WHERE tm.evento_sanitario_id = e.id AND t.estado IN ('PROGRAMADO', 'EN_ATENCION')
                      ORDER BY t.fecha, t.hora LIMIT 1) AS turno_fecha
              FROM evento_sanitario e LEFT JOIN plan_sanitario p ON p.id = e.plan_sanitario_id
              WHERE e.mascota_id = ? ORDER BY e.fecha_programada, e.id",
@@ -134,12 +98,13 @@ class CalendarioSanitario
     }
 
     // Agrega a la mascota un ítem del plan de su especie, para la fecha que elige el veterinario.
-    // 'ok', 'plan_invalido' (no existe o es de otra especie), 'ya_pendiente' (ya lo tiene sin dar) o
-    // 'ya_dada' (es de una sola vez y ya se lo dieron).
-    public function agregar(int $mascotaId, int $planId, string $fecha): string
+    // 'ok', 'plan_invalido' (no existe o es de otra especie), 'dosis_anteriores' (con $faltan: los
+    // nombres de las dosis anteriores de la misma vacuna que no están dadas en el calendario),
+    // 'ya_pendiente' (ya lo tiene sin dar) o 'ya_dada' (es de una sola vez y ya se lo dieron).
+    public function agregar(int $mascotaId, int $planId, string $fecha, ?array &$faltan = null): string
     {
         $item = $this->fila(
-            'SELECT p.id, p.tipo, p.nombre, p.repetir_cada_meses
+            'SELECT p.id, p.tipo, p.nombre, p.aplicacion, p.orden, p.especie, p.repetir_cada_meses
              FROM plan_sanitario p JOIN mascota m ON m.especie = p.especie
              WHERE p.id = ? AND m.id = ?',
             [$planId, $mascotaId]
@@ -147,6 +112,20 @@ class CalendarioSanitario
 
         if ($item === null) {
             return 'plan_invalido';
+        }
+
+        // La 3.ª séxtuple se carga con la 1.ª y la 2.ª ya cargadas y dadas (en HuellaVet o en otra veterinaria).
+        $faltan = array_column($this->filas(
+            'SELECT p.nombre FROM plan_sanitario p
+             WHERE p.especie = ? AND p.aplicacion = ? AND p.orden < ?
+               AND NOT EXISTS (SELECT 1 FROM evento_sanitario e
+                               WHERE e.mascota_id = ? AND e.plan_sanitario_id = p.id AND e.fecha_aplicada IS NOT NULL)
+             ORDER BY p.orden',
+            [$item['especie'], $item['aplicacion'], (int) $item['orden'], $mascotaId]
+        ), 'nombre');
+
+        if ($faltan !== []) {
+            return 'dosis_anteriores';
         }
 
         $ya = $this->fila(
@@ -234,7 +213,8 @@ class CalendarioSanitario
 
         // Los turnos cancelados o ausentes que eran para este evento lo sueltan (si no, la clave foránea no deja borrarlo).
         $this->db->prepare(
-            "UPDATE turno SET evento_sanitario_id = NULL WHERE evento_sanitario_id = ? AND estado IN ('CANCELADO', 'AUSENTE')"
+            "UPDATE turno_motivo tm JOIN turno t ON t.id = tm.turno_id SET tm.evento_sanitario_id = NULL
+             WHERE tm.evento_sanitario_id = ? AND t.estado IN ('CANCELADO', 'AUSENTE')"
         )->execute([$eventoId]);
         $this->db->prepare('DELETE FROM evento_sanitario WHERE id = ? AND fecha_aplicada IS NULL')->execute([$eventoId]);
 
@@ -293,31 +273,6 @@ class CalendarioSanitario
     }
 
     // ---------- Reglas (sin base de datos) ----------
-
-    // Primera fecha de un ítem del plan para una mascota: el nacimiento más la edad de inicio.
-    // Si ya pasó, un ítem que se repite va a la próxima fecha que le toque desde hoy, y uno que no
-    // se repite no se agrega (null).
-    public static function fechaParaPlan(string $nacimiento, int $edadInicioSemanas, ?int $repetirCadaMeses, string $hoy): ?string
-    {
-        $fecha = (new DateTimeImmutable($nacimiento))->modify("+$edadInicioSemanas weeks")->format('Y-m-d');
-
-        if ($fecha >= $hoy) {
-            return $fecha;
-        }
-
-        if ($repetirCadaMeses === null) {
-            return null;
-        }
-
-        // Se suma desde la primera fecha (no desde la anterior) para que el día del mes no se corra.
-        for ($veces = 1; ; $veces++) {
-            $siguiente = self::sumarMeses($fecha, $repetirCadaMeses * $veces);
-
-            if ($siguiente >= $hoy) {
-                return $siguiente;
-            }
-        }
-    }
 
     // APLICADO, VENCIDO, PROXIMO (le toca en los próximos DIAS_PROXIMO días) o PENDIENTE.
     public static function estadoDe(string $programada, ?string $aplicada, string $hoy): string
@@ -421,8 +376,9 @@ class CalendarioSanitario
     private function turnoActivo(int $eventoId): ?array
     {
         return $this->fila(
-            "SELECT id, fecha FROM turno WHERE evento_sanitario_id = ? AND estado IN ('PROGRAMADO', 'EN_ATENCION')
-             ORDER BY fecha, hora LIMIT 1",
+            "SELECT t.id, t.fecha FROM turno_motivo tm JOIN turno t ON t.id = tm.turno_id
+             WHERE tm.evento_sanitario_id = ? AND t.estado IN ('PROGRAMADO', 'EN_ATENCION')
+             ORDER BY t.fecha, t.hora LIMIT 1",
             [$eventoId]
         );
     }

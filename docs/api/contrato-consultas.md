@@ -39,7 +39,7 @@ Los endpoints de abajo devuelven este objeto:
 ```
 El `id` de cada ítem es el que se usa para quitarlo.
 
-**`evento_sanitario` (migración 025).** Si el turno es de vacunación o desparasitación: `{"id", "nombre", "aplicacion", "insumos": [{"id", "nombre", "stock"}]}`, con los insumos activos de esa aplicación; `null` si no. En la consulta (no en la factura ni en el historial) cada insumo trae además `aplicacion` y `stock`.
+**`motivos` y `eventos_sanitarios` (migraciones 025 y 026).** `motivos`: todos los del turno (como en `contrato-mascotas-turnos.md`). `eventos_sanitarios`: cada vacuna o desparasitación que se da, `{"id", "nombre", "aplicacion", "insumos": [{"id", "nombre", "stock"}]}`, con los insumos activos de esa aplicación (vacío si no hay ninguna). En la consulta (no en la factura ni en el historial) cada insumo trae además `aplicacion` y `stock`. La factura (`consulta.motivos`) y el historial (`motivos` de cada una) también traen todos los motivos.
 
 ## Iniciar atención
 `POST /api/pacientes/turnos/{id}/atencion` — Veterinario. Sin cuerpo.
@@ -96,9 +96,9 @@ Respuestas:
 - 409 por ítem inexistente: Inventario no encontró un insumo o producto de la consulta (respondió 404). No se finaliza nada; hay que quitar el ítem y reintentar.
 - 502: Inventario no responde o rechaza el pedido (por ejemplo, token interno inválido). La consulta sigue `ABIERTA`; reintentar es seguro.
 
-Si el turno es para algo del calendario (vacunación o desparasitación, migración 025), dentro de la misma transacción se marca como dado ese evento (`turno.evento_sanitario_id`, `CalendarioSanitario::marcarAplicado()`). Un turno de `VACUNACION` de antes de la migración no tiene evento: se marca la vacuna pendiente más vieja de la mascota (`vacunaPendiente()`), y si no hay ninguna no se marca nada. Si algo falla, se deshace todo junto con la factura.
+Si el turno tiene motivos del calendario (vacunación o desparasitación), dentro de la misma transacción se marca como dado cada evento (`turno_motivo.evento_sanitario_id`, `CalendarioSanitario::marcarAplicado()`). Un turno de `VACUNACION` de antes de la migración no tiene evento: se marca la vacuna pendiente más vieja de la mascota (`vacunaPendiente()`), y si no hay ninguna no se marca nada. Si algo falla, se deshace todo junto con la factura.
 
-**La dosis en los insumos (migración 025).** Si la consulta tiene `evento_sanitario`, para finalizar tiene que llevar en los insumos uno con la misma `aplicacion` (400: `"Esta consulta es para Antirrábica: cargá en los insumos la dosis que se da."`). Sin stock, Inventario responde el 409 de stock insuficiente de siempre; el stock se carga con `POST /api/inventario/insumos/{id}/stock` (la pantalla lo ofrece ahí mismo).
+**La dosis en los insumos (migración 025).** Por cada evento de `eventos_sanitarios`, para finalizar la consulta tiene que llevar en los insumos uno con la misma `aplicacion` (400: `"Falta cargar en los insumos la dosis de: Antirrábica, Séxtuple (2.ª dosis)."`). Sin stock, Inventario responde el 409 de stock insuficiente de siempre; el stock se carga con `POST /api/inventario/insumos/{id}/stock` (la pantalla lo ofrece ahí mismo).
 
 `finalizada_en` y la `fecha` de la factura están en hora de Argentina.
 
