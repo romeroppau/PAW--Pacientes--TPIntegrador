@@ -162,6 +162,16 @@ Cuerpo: `{"fecha": "2026-11-12", "hora": "17:30"}`. Mismas reglas de fecha y hor
 - 404: el turno no existe.
 - 409: el turno no está `PROGRAMADO`, o el veterinario ya tiene otro turno a esa hora (con `campos.hora`). El horario anterior queda libre al reprogramar.
 
+## Avisos de turnos (25/11)
+
+Cuando la veterinaria **carga**, **reprograma** o **cancela** un turno, al dueño de la mascota le llega un aviso por la campana (`WEB`) y por `WHATSAPP` (tipo `TURNO`, migración 024). Pacientes los deja en Backend por `POST /internal/notificaciones` (`src/AvisosTurno.php`) y Backend manda el WhatsApp en el momento. Si Backend no responde, el turno queda igual y el error va al log. Marcar ausente no avisa. Los turnos de chequeo que crea Adopciones avisan desde Adopciones.
+
+| Cuándo | `id_operacion` |
+|---|---|
+| Carga | `turno-{id}-asignado-{web\|whatsapp}` |
+| Reprograma | `turno-{id}-reprogramado-{AAAAMMDDHHMMSS}-{web\|whatsapp}` |
+| Cancela | `turno-{id}-cancelado-{web\|whatsapp}` |
+
 ## Dar de alta una mascota (etapa 3)
 `POST /api/pacientes/mascotas` — Cliente o rescatista. El dueño es el usuario de la sesión.
 
