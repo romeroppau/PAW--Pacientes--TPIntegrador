@@ -81,7 +81,11 @@ class TurnoControlador
             return;
         }
 
-        Response::json(['turno' => $repositorio->detalle($resultado)], 201);
+        $turno = $repositorio->detalle($resultado);
+        // Aviso al dueño por la campana y por WhatsApp (25/11).
+        AvisosTurno::enviar(AvisosTurno::asignado($turno));
+
+        Response::json(['turno' => $turno], 201);
     }
 
     // POST /api/pacientes/turnos/{id}/reprogramar — el veterinario cambia la fecha y la hora de un turno
@@ -108,7 +112,9 @@ class TurnoControlador
 
         switch ($repositorio->reprogramar($id, $datos['fecha'], $datos['hora'], self::precioPara($datos['fecha'], $datos['hora']))) {
             case 'ok':
-                Response::json(['turno' => $repositorio->detalle($id)]);
+                $turno = $repositorio->detalle($id);
+                AvisosTurno::enviar(AvisosTurno::reprogramado($turno, date('YmdHis')));
+                Response::json(['turno' => $turno]);
                 return;
             case 'inexistente':
                 Response::error(self::TURNO_NO_ENCONTRADO, 404);
@@ -146,7 +152,12 @@ class TurnoControlador
 
         switch ($resultado) {
             case 'ok':
-                Response::json(['turno' => $repositorio->detalle($id)]);
+                $turno = $repositorio->detalle($id);
+                // Al cancelarlo, se le avisa al dueño (25/11). Marcarlo ausente no avisa.
+                if ($estado === 'CANCELADO') {
+                    AvisosTurno::enviar(AvisosTurno::cancelado($turno));
+                }
+                Response::json(['turno' => $turno]);
                 return;
             case 'inexistente':
                 Response::error(self::TURNO_NO_ENCONTRADO, 404);
