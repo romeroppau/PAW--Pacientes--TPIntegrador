@@ -50,7 +50,7 @@ Una mascota tiene las **vacunas al día** si no tiene ninguna vacuna `VENCIDO` (
 
 ```json
 {
-  "mascota": { "id": 103, "nombre": "Luna", "especie": "PERRO", "fecha_nacimiento": "2026-08-27" },
+  "mascota": { "id": 103, "nombre": "Luna", "especie": "PERRO", "fecha_nacimiento": "2026-08-27", "duenio": { "id": 103, "nombre": "Tomás Aguirre" } },
   "vacunas_al_dia": false,
   "eventos": [
     { "id": 105, "tipo": "VACUNA", "nombre": "Séxtuple (1.ª dosis)", "fecha_programada": "2026-10-08",

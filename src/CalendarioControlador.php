@@ -35,7 +35,9 @@ class CalendarioControlador
                 'id' => $mascota['id'],
                 'nombre' => $mascota['nombre'],
                 'especie' => $mascota['especie'],
-                'fecha_nacimiento' => $mascota['fecha_nacimiento']
+                'fecha_nacimiento' => $mascota['fecha_nacimiento'],
+                // El dueño (la veterinaria lo ve en la tabla, con el enlace a su ficha).
+                'duenio' => ['id' => $mascota['duenio']['id'], 'nombre' => $mascota['duenio']['nombre']],
             ],
             'vacunas_al_dia' => CalendarioSanitario::vacunasAlDia($eventos),
             'eventos' => $eventos

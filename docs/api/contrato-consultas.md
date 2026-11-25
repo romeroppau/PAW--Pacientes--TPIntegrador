@@ -123,3 +123,28 @@ Si el motivo del turno es `VACUNACION`, dentro de la misma transacción se marca
 `GET /api/pacientes/mascotas/{id}/historial` — Cliente (solo sus mascotas) o Veterinario (cualquiera). Los rescatistas reciben 403.
 - 200: `{"consultas": [ ... ]}` con las consultas finalizadas, de la más reciente a la más antigua (hasta 50). Cada una trae `id`, `fecha` (del turno), `finalizada_en`, `diagnostico`, `observaciones`, `valor_base`, `insumos`, `productos` y `factura`.
 - 404: la mascota no existe o es de otro cliente (no se revela que existe).
+## Pacientes atendidos (Entrega 5)
+
+`GET /api/pacientes/atendidos?buscar=&pagina=` — Veterinario. Lo usa "Historial clínico" de "Mis pacientes": las mascotas con al menos una consulta finalizada, de a 20, la de la consulta más reciente primero.
+
+- `buscar` (opcional, hasta 80 caracteres): parte del nombre de la mascota o del dueño. `%` y `_` se buscan como texto.
+- `pagina` (opcional, desde 1).
+- 200:
+
+  ```json
+  {
+    "datos": [
+      {
+        "mascota": { "id": 101, "nombre": "Firulais", "especie": "PERRO", "raza": "Mestizo", "activo": true },
+        "duenio": { "id": 102, "nombre": "Cliente de Prueba" },
+        "consultas": 4,
+        "ultima_consulta": { "fecha": "2026-11-20", "diagnostico": "Otitis externa leve." }
+      }
+    ],
+    "pagina": 1, "por_pagina": 20, "hay_mas": false
+  }
+  ```
+
+- 400: la búsqueda es muy larga o la página no es un entero desde 1. 401 sin sesión; 403 otro rol.
+
+Las consultas de cada una se piden con el historial clínico (`GET /api/pacientes/mascotas/{id}/historial`, arriba).

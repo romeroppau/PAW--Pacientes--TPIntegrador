@@ -339,6 +339,72 @@ class ConsultaRepositorio
         return $consultas;
     }
 
+    // Pacientes atendidos (la veterinaria, "Historial clínico"): las mascotas con al menos una consulta
+    // finalizada, la de la consulta más reciente primero. $buscar filtra por el nombre de la mascota o
+    // del dueño. Devuelve [filas de la página, hay_mas]. Cada fila: la mascota, su dueño, cuántas
+    // consultas tuvo y la fecha y el diagnóstico de la última.
+    public function pacientesAtendidos(?string $buscar, int $pagina, int $porPagina): array
+    {
+        $where = "c.estado = 'FINALIZADA'";
+        $parametros = [];
+        if ($buscar !== null) {
+            // % y _ son comodines de LIKE: se escapan para buscarlos como texto.
+            $patron = '%' . addcslashes($buscar, '%_\\') . '%';
+            $where .= ' AND (m.nombre LIKE ? OR d.nombre LIKE ?)';
+            $parametros = [$patron, $patron];
+        }
+
+        // Se pide uno de más para saber si hay otra página. LIMIT y OFFSET son enteros calculados acá.
+        $limite = $porPagina + 1;
+        $desde = ($pagina - 1) * $porPagina;
+        $filas = $this->filas(
+            "SELECT m.id, m.nombre, m.especie, m.raza, m.activo, d.id AS duenio_id, d.nombre AS duenio_nombre,
+                    COUNT(*) AS consultas, MAX(c.finalizada_en) AS ultima
+             FROM consulta c
+             JOIN turno t ON t.id = c.turno_id
+             JOIN mascota m ON m.id = t.mascota_id
+             JOIN usuario d ON d.id = m.duenio_id
+             WHERE $where
+             GROUP BY m.id, m.nombre, m.especie, m.raza, m.activo, d.id, d.nombre
+             ORDER BY ultima DESC, m.id DESC
+             LIMIT $limite OFFSET $desde",
+            $parametros
+        );
+        $hayMas = count($filas) > $porPagina;
+        $filas = array_slice($filas, 0, $porPagina);
+
+        // El diagnóstico de la última consulta de cada una (una sola consulta para toda la página).
+        $diagnosticos = [];
+        if ($filas !== []) {
+            $ids = array_map(fn (array $f): int => (int) $f['id'], $filas);
+            $marcas = implode(', ', array_fill(0, count($ids), '?'));
+            foreach ($this->filas(
+                "SELECT t.mascota_id, c.diagnostico FROM consulta c JOIN turno t ON t.id = c.turno_id
+                 WHERE c.estado = 'FINALIZADA' AND t.mascota_id IN ($marcas)
+                 ORDER BY c.finalizada_en DESC, c.id DESC",
+                $ids
+            ) as $f) {
+                $diagnosticos[(int) $f['mascota_id']] ??= $f['diagnostico'];
+            }
+        }
+
+        return [array_map(fn (array $f): array => [
+            'mascota' => [
+                'id' => (int) $f['id'],
+                'nombre' => $f['nombre'],
+                'especie' => $f['especie'],
+                'raza' => $f['raza'],
+                'activo' => (bool) $f['activo'],
+            ],
+            'duenio' => ['id' => (int) $f['duenio_id'], 'nombre' => $f['duenio_nombre']],
+            'consultas' => (int) $f['consultas'],
+            'ultima_consulta' => [
+                'fecha' => substr((string) $f['ultima'], 0, 10),
+                'diagnostico' => $diagnosticos[(int) $f['id']] ?? null,
+            ],
+        ], $filas), $hayMas];
+    }
+
     // ---------- Ayudas ----------
 
     // Ejecuta la acción dentro de una transacción: confirma si termina bien y deshace si lanza un error.

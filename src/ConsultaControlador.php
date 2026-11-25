@@ -4,6 +4,8 @@
 // Los métodos son static para conectarlos al router así: [ConsultaControlador::class, 'ver'].
 class ConsultaControlador
 {
+    private const POR_PAGINA_ATENDIDOS = 20;
+
     private const CONSULTA_NO_ENCONTRADA = 'Consulta no encontrada';
     private const CONSULTA_FINALIZADA = 'La consulta ya está finalizada';
 
@@ -271,6 +273,31 @@ class ConsultaControlador
         }
 
         Response::json(['consultas' => $repositorio->historial($id)]);
+    }
+
+    // GET /api/pacientes/atendidos?buscar=&pagina= — la veterinaria: los pacientes atendidos ("Historial
+    // clínico"), de a 20, el de la consulta más reciente primero. El historial de cada uno se pide con
+    // GET /api/pacientes/mascotas/{id}/historial.
+    public static function atendidos(): void
+    {
+        Auth::requerirRol(['VETERINARIO']);
+        $consulta = Request::query();
+
+        $buscar = $consulta['buscar'] ?? '';
+        $errores = ValidadorFiltros::validarBusqueda($buscar);
+        $pagina = filter_var($consulta['pagina'] ?? '1', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 10000]]);
+        if ($pagina === false) {
+            $errores[] = 'La página tiene que ser un número entero desde 1';
+        }
+        if ($errores !== []) {
+            Response::error(implode(' ', $errores), 400);
+            return;
+        }
+
+        $buscar = trim((string) $buscar);
+        [$datos, $hayMas] = self::repositorio()->pacientesAtendidos($buscar === '' ? null : $buscar, $pagina, self::POR_PAGINA_ATENDIDOS);
+
+        Response::json(['datos' => $datos, 'pagina' => $pagina, 'por_pagina' => self::POR_PAGINA_ATENDIDOS, 'hay_mas' => $hayMas]);
     }
 
     // ---------- Ayudas ----------
