@@ -323,7 +323,9 @@ class ConsultaRepositorio
     public function historial(int $mascotaId): array
     {
         $consultas = $this->filas(
-            "SELECT c.id, c.diagnostico, c.observaciones, c.valor_base, c.finalizada_en, t.fecha
+            // motivo (25/11): el del turno (CONSULTA, VACUNACION o CHEQUEO_ADOPCION), para que el dueño
+            // vea, por ejemplo, que tuvo el chequeo de adopción ese día.
+            "SELECT c.id, t.motivo, c.diagnostico, c.observaciones, c.valor_base, c.finalizada_en, t.fecha
              FROM consulta c JOIN turno t ON t.id = c.turno_id
              WHERE t.mascota_id = ? AND c.estado = 'FINALIZADA'
              ORDER BY c.finalizada_en DESC, c.id DESC LIMIT 50",
