@@ -168,10 +168,8 @@ class TurnoRepositorio
             'id' => (int) $fila['id'],
             'fecha' => $fila['fecha'],
             'hora' => $fila['hora'],
-            // El motivo principal (MotivosTurno::principal) y todos los motivos, cada uno con el evento del
-            // calendario que se da (vacunación o desparasitación) o null.
+            // El motivo principal (MotivosTurno::principal); todos los motivos van en 'motivos', al final.
             'motivo' => $fila['motivo'],
-            'motivos' => $motivos[(int) $fila['id']],
             'estado' => $fila['estado'],
             'mascota' => [
                 'id' => (int) $fila['mascota_id'],
@@ -194,6 +192,9 @@ class TurnoRepositorio
                 'descuento' => $fila['descuento'] === null ? null : (int) $fila['descuento'],
                 'final' => PrecioTurno::conDescuento((float) $fila['precio_consulta'], $fila['descuento'] === null ? null : (int) $fila['descuento']),
             ],
+            // Todos los motivos (migración 026), cada uno con el evento del calendario que se da
+            // (vacunación o desparasitación) o null.
+            'motivos' => $motivos[(int) $fila['id']],
         ], $filas);
     }
 }
