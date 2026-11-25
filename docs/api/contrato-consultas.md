@@ -121,7 +121,7 @@ Si el motivo del turno es `VACUNACION`, dentro de la misma transacción se marca
 
 ## Historial clínico
 `GET /api/pacientes/mascotas/{id}/historial` — Cliente (solo sus mascotas) o Veterinario (cualquiera). Los rescatistas reciben 403.
-- 200: `{"consultas": [ ... ]}` con las consultas finalizadas, de la más reciente a la más antigua (hasta 50). Cada una trae `id`, `fecha` (del turno), `finalizada_en`, `diagnostico`, `observaciones`, `valor_base`, `insumos`, `productos` y `factura`.
+- 200: `{"consultas": [ ... ]}` con las consultas finalizadas, de la más reciente a la más antigua (hasta 50). Cada una trae `id`, `motivo` (el del turno: `CONSULTA`, `VACUNACION` o `CHEQUEO_ADOPCION`; 25/11), `fecha` (del turno), `finalizada_en`, `diagnostico`, `observaciones`, `valor_base`, `insumos`, `productos` y `factura`.
 - 404: la mascota no existe o es de otro cliente (no se revela que existe).
 ## Pacientes atendidos (Entrega 5)
 
