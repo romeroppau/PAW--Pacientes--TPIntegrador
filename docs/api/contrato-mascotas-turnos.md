@@ -120,6 +120,8 @@ plan de la especie, ver `contrato-calendario.md`). El turno se saca solo si cada
   que dar: Antirrábica. Cargala primero en el calendario."`);
 - no tiene una dosis anterior de la misma vacuna sin dar (409);
 - no tiene otro turno programado o en atención para lo mismo (409).
+- desde la última dosis dada de esa vacuna pasaron los días mínimos de Configuración → Vacunas, contando
+  hasta la fecha del turno (409, 26/11; ver `contrato-calendario.md`, "Días mínimos entre dosis").
 
 El mensaje de los 409 viene también en `campos.plan_sanitario_id`; los errores de la lista, en
 `campos.motivos`. El turno devuelve `motivos` (cada uno con su `evento_sanitario`: `{"id", "nombre",
@@ -185,6 +187,7 @@ Cuerpo: `{"fecha": "2026-11-12", "hora": "17:30"}`. Mismas reglas de fecha y hor
 - 400: un error por campo (`fecha`, `hora`).
 - 404: el turno no existe.
 - 409: el turno no está `PROGRAMADO`, o el veterinario ya tiene otro turno a esa hora (con `campos.hora`). El horario anterior queda libre al reprogramar.
+- 409 (26/11): en un turno de vacunación o desparasitación, la fecha nueva no respeta los días mínimos desde la dosis anterior (con `campos.fecha`).
 
 ## Avisos de turnos (25/11)
 

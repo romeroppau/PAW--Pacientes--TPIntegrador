@@ -76,7 +76,8 @@ class TurnoControlador
                 continue;
             }
 
-            $evento = $calendario->eventoParaTurno($datos['mascota_id'], $motivo['plan_sanitario_id'], $motivo['motivo']);
+            // Con la fecha del turno: tiene que respetar los días mínimos desde la dosis anterior (26/11).
+            $evento = $calendario->eventoParaTurno($datos['mascota_id'], $motivo['plan_sanitario_id'], $motivo['motivo'], $datos['fecha']);
 
             if ($evento['estado'] === 'mascota_inexistente') {
                 Response::error('Mascota no encontrada', 404);
@@ -129,6 +130,14 @@ class TurnoControlador
 
         if ($errores !== []) {
             Response::error('Revisá la fecha y la hora', 400, $errores);
+            return;
+        }
+
+        // Una vacunación o desparasitación pasada a otra fecha tiene que seguir respetando los días mínimos
+        // desde la dosis anterior (26/11).
+        $intervalo = (new CalendarioSanitario(Database::conectar()))->intervaloParaTurno($id, $datos['fecha']);
+        if ($intervalo !== null) {
+            Response::error($intervalo, 409, ['fecha' => $intervalo]);
             return;
         }
 
