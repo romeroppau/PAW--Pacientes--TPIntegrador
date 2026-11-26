@@ -6,7 +6,12 @@
 // desde su panel); si no lo pasa, es el de siempre: de HORA_APERTURA a HORA_CIERRE.
 class ValidadorTurno
 {
-    public const MOTIVOS = ['CONSULTA', 'VACUNACION', 'CHEQUEO_ADOPCION'];
+    // Migración 025: más motivos. CHEQUEO_ADOPCION lo usan los chequeos de adopción.
+    public const MOTIVOS = ['CONSULTA', 'VACUNACION', 'DESPARASITACION', 'CASTRACION', 'CIRUGIA', 'CONTROL', 'URGENCIA', 'CHEQUEO_ADOPCION'];
+    // Los motivos que dan algo del calendario sanitario: el turno dice cuál (plan_sanitario_id).
+    public const MOTIVOS_DEL_CALENDARIO = ['VACUNACION', 'DESPARASITACION'];
+    // Un turno puede tener varios motivos (migración 026), hasta este tope.
+    public const MAXIMO_MOTIVOS = 8;
     // Horario por defecto (el mismo que figura en el catálogo de configuración de Backend).
     public const HORA_APERTURA = '08:00';
     public const HORA_CIERRE = '20:00';
@@ -26,14 +31,63 @@ class ValidadorTurno
 
         self::validarFechaYHora($datos, $hoy, $horario ?? self::horarioPorDefecto(), $limpios, $errores);
 
-        $motivo = $datos['motivo'] ?? null;
-        if (!is_string($motivo) || !in_array($motivo, self::MOTIVOS, true)) {
-            $errores['motivo'] = 'Elegí el motivo';
-        } else {
-            $limpios['motivo'] = $motivo;
-        }
+        self::validarMotivos($datos, $limpios, $errores);
 
         return [$limpios, $errores];
+    }
+
+    // Los motivos del turno (migración 026): {"motivos": [{"motivo": "VACUNACION", "plan_sanitario_id": 5},
+    // {"motivo": "CONSULTA"}]}. Por compatibilidad también se acepta uno suelto: {"motivo": "CONSULTA"}
+    // (con su "plan_sanitario_id" si es del calendario). Deja en $limpios 'motivos' (cada uno con su
+    // plan_sanitario_id si es del calendario) y 'motivo' (el principal, MotivosTurno::principal).
+    private static function validarMotivos(array $datos, array &$limpios, array &$errores): void
+    {
+        $lista = $datos['motivos'] ?? null;
+        if ($lista === null && array_key_exists('motivo', $datos)) {
+            $lista = [['motivo' => $datos['motivo'], 'plan_sanitario_id' => $datos['plan_sanitario_id'] ?? null]];
+        }
+
+        if (!is_array($lista) || !array_is_list($lista) || $lista === []) {
+            $errores['motivos'] = 'Elegí al menos un motivo';
+            return;
+        }
+
+        if (count($lista) > self::MAXIMO_MOTIVOS) {
+            $errores['motivos'] = 'Un turno puede tener hasta ' . self::MAXIMO_MOTIVOS . ' motivos';
+            return;
+        }
+
+        $motivos = [];
+        $vistos = [];
+        foreach ($lista as $item) {
+            $motivo = is_array($item) ? ($item['motivo'] ?? null) : null;
+            if (!is_string($motivo) || !in_array($motivo, self::MOTIVOS, true)) {
+                $errores['motivos'] = 'Elegí el motivo de la lista';
+                return;
+            }
+
+            $limpio = ['motivo' => $motivo];
+            $clave = $motivo;
+            if (in_array($motivo, self::MOTIVOS_DEL_CALENDARIO, true)) {
+                $plan = $item['plan_sanitario_id'] ?? null;
+                if (!is_int($plan) || $plan <= 0) {
+                    $errores['plan_sanitario_id'] = $motivo === 'VACUNACION' ? 'Elegí la vacuna' : 'Elegí la desparasitación';
+                    return;
+                }
+                $limpio['plan_sanitario_id'] = $plan;
+                $clave .= '-' . $plan;
+            }
+
+            if (isset($vistos[$clave])) {
+                $errores['motivos'] = 'Hay un motivo repetido';
+                return;
+            }
+            $vistos[$clave] = true;
+            $motivos[] = $limpio;
+        }
+
+        $limpios['motivos'] = $motivos;
+        $limpios['motivo'] = MotivosTurno::principal($motivos);
     }
 
     // Reprogramar: solo cambian la fecha y la hora, con las mismas reglas del alta.

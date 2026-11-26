@@ -10,11 +10,15 @@ class ConsultaRepositorio
     private const TIPOS = [
         'insumos' => [
             'item' => 'item_insumo_consulta', 'catalogo' => 'insumo',
-            'columna' => 'insumo_id', 'precio' => 'costo_unitario', 'origen' => 'costo'
+            'columna' => 'insumo_id', 'precio' => 'costo_unitario', 'origen' => 'costo',
+            // Solo en la consulta abierta (detalle): qué aplicación del calendario es el insumo
+            // (migración 025) y su stock, para avisar si falta. La factura y el historial no los llevan.
+            'extra' => ', c.aplicacion, c.stock'
         ],
         'productos' => [
             'item' => 'item_producto_consulta', 'catalogo' => 'producto',
-            'columna' => 'producto_id', 'precio' => 'precio_unitario', 'origen' => 'precio'
+            'columna' => 'producto_id', 'precio' => 'precio_unitario', 'origen' => 'precio',
+            'extra' => ''
         ]
     ];
 
@@ -77,8 +81,19 @@ class ConsultaRepositorio
             $consulta['precio_lista'] = null;
         }
 
-        $consulta['insumos'] = $this->items($id, 'insumos');
-        $consulta['productos'] = $this->items($id, 'productos');
+        $consulta['insumos'] = $this->items($id, 'insumos', true);
+        $consulta['productos'] = $this->items($id, 'productos', true);
+
+        // Todos los motivos del turno (migración 026) y lo que se da del calendario (vacunas y
+        // desparasitaciones), cada uno con los insumos que sirven para darlo (con su stock), para que la
+        // veterinaria cargue uno. Sin cargarlos no se finaliza.
+        $consulta['motivos'] = MotivosTurno::deTurnos($this->db, [(int) $consulta['turno_id'] => $consulta['motivo']])[(int) $consulta['turno_id']];
+        $consulta['eventos_sanitarios'] = array_map(fn (array $evento): array => $evento + [
+            'insumos' => array_map(fn (array $i): array => ['id' => (int) $i['id'], 'nombre' => $i['nombre'], 'stock' => (int) $i['stock']], $this->filas(
+                'SELECT id, nombre, stock FROM insumo WHERE aplicacion = ? AND activo = 1 ORDER BY stock DESC, nombre',
+                [$evento['aplicacion']]
+            )),
+        ], MotivosTurno::eventos($consulta['motivos']));
         $consulta['total'] = FacturaConsulta::calcular(
             $consulta['valor_base'],
             $consulta['insumos'],
@@ -88,13 +103,15 @@ class ConsultaRepositorio
         return $consulta;
     }
 
-    // Ítems de la consulta. $tipo: 'insumos' o 'productos'.
-    public function items(int $consultaId, string $tipo): array
+    // Ítems de la consulta. $tipo: 'insumos' o 'productos'. $conExtra: con la aplicación y el stock de
+    // cada insumo (solo para la veterinaria, en la consulta).
+    public function items(int $consultaId, string $tipo, bool $conExtra = false): array
     {
         $t = self::TIPOS[$tipo];
+        $extra = $conExtra ? $t['extra'] : '';
 
         return $this->filas(
-            "SELECT i.id, i.{$t['columna']}, c.nombre, i.cantidad, i.{$t['precio']}
+            "SELECT i.id, i.{$t['columna']}, c.nombre, i.cantidad, i.{$t['precio']}{$extra}
              FROM {$t['item']} i JOIN {$t['catalogo']} c ON c.id = i.{$t['columna']}
              WHERE i.consulta_id = ? ORDER BY i.id",
             [$consultaId]
@@ -200,7 +217,7 @@ class ConsultaRepositorio
     }
 
     // Cierra la consulta en una transacción: factura, consulta FINALIZADA, turno ATENDIDO y, si el turno
-    // era de vacunación, la vacuna que le tocaba a la mascota queda aplicada en el calendario.
+    // era para algo del calendario (vacuna o desparasitación), queda dado en el calendario.
     // Devuelve la factura, o null si la consulta no existe o ya estaba finalizada.
     public function finalizar(int $consultaId): ?array
     {
@@ -248,15 +265,18 @@ class ConsultaRepositorio
             );
             $this->ejecutar("UPDATE turno SET estado = 'ATENDIDO' WHERE id = ?", [$consulta['turno_id']]);
 
-            // Turno de vacunación: se marca en el calendario la vacuna que le tocaba a la mascota.
+            // Se marca en el calendario lo que se dio: los eventos de los motivos del turno (migración 026)
+            // o, en un turno de vacunación de antes, la vacuna sin dar más vieja de la mascota.
             // marcarAplicado() no abre otra transacción: si algo falla, se deshace todo junto con la factura.
-            if ($consulta['motivo'] === 'VACUNACION') {
-                $calendario = new CalendarioSanitario($this->db);
-                $eventoId = $calendario->vacunaPendiente((int) $consulta['mascota_id']);
+            $calendario = new CalendarioSanitario($this->db);
+            $turnoId = (int) $consulta['turno_id'];
+            $eventos = array_column(MotivosTurno::eventos(MotivosTurno::deTurnos($this->db, [$turnoId => $consulta['motivo']])[$turnoId]), 'id');
+            if ($eventos === [] && $consulta['motivo'] === 'VACUNACION') {
+                $eventos = array_filter([$calendario->vacunaPendiente((int) $consulta['mascota_id'])]);
+            }
 
-                if ($eventoId !== null) {
-                    $calendario->marcarAplicado($eventoId, $consultaId);
-                }
+            foreach ($eventos as $eventoId) {
+                $calendario->marcarAplicado((int) $eventoId, $consultaId);
             }
 
             return $this->factura($consultaId);
@@ -282,7 +302,7 @@ class ConsultaRepositorio
         }
 
         $datos = $this->fila(
-            'SELECT c.id, c.diagnostico, c.valor_base, t.fecha, t.hora, t.motivo, t.precio_consulta, t.descuento,
+            'SELECT c.id, c.turno_id, c.diagnostico, c.valor_base, t.fecha, t.hora, t.motivo, t.precio_consulta, t.descuento,
                     m.id AS mascota_id, m.nombre AS mascota, u.id AS cliente_id, u.nombre AS cliente
              FROM consulta c
              JOIN turno t ON t.id = c.turno_id
@@ -297,6 +317,7 @@ class ConsultaRepositorio
             'fecha' => $datos['fecha'],
             'hora' => substr((string) $datos['hora'], 0, 5),
             'motivo' => $datos['motivo'],
+            'motivos' => MotivosTurno::deTurnos($this->db, [(int) $datos['turno_id'] => $datos['motivo']])[(int) $datos['turno_id']],
             'diagnostico' => $datos['diagnostico'],
             'valor_base' => $datos['valor_base'],
             // Si el turno tenía descuento (franja promocionada): el precio sin descuento y el porcentaje.
@@ -323,16 +344,19 @@ class ConsultaRepositorio
     public function historial(int $mascotaId): array
     {
         $consultas = $this->filas(
-            // motivo (25/11): el del turno (CONSULTA, VACUNACION o CHEQUEO_ADOPCION), para que el dueño
-            // vea, por ejemplo, que tuvo el chequeo de adopción ese día.
-            "SELECT c.id, t.motivo, c.diagnostico, c.observaciones, c.valor_base, c.finalizada_en, t.fecha
+            // motivo (25/11): el principal del turno, y motivos (migración 026): todos, para que el dueño
+            // vea, por ejemplo, que tuvo el chequeo de adopción y la antirrábica ese día.
+            "SELECT c.id, c.turno_id, t.motivo, c.diagnostico, c.observaciones, c.valor_base, c.finalizada_en, t.fecha
              FROM consulta c JOIN turno t ON t.id = c.turno_id
              WHERE t.mascota_id = ? AND c.estado = 'FINALIZADA'
              ORDER BY c.finalizada_en DESC, c.id DESC LIMIT 50",
             [$mascotaId]
         );
 
+        $motivos = MotivosTurno::deTurnos($this->db, array_column($consultas, 'motivo', 'turno_id'));
         foreach ($consultas as &$consulta) {
+            $consulta['motivos'] = $motivos[(int) $consulta['turno_id']];
+            unset($consulta['turno_id']);
             $consulta['insumos'] = $this->items($consulta['id'], 'insumos');
             $consulta['productos'] = $this->items($consulta['id'], 'productos');
             $consulta['factura'] = $this->factura($consulta['id']);

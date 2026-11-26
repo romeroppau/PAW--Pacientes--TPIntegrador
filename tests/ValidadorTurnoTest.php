@@ -8,11 +8,70 @@ class ValidadorTurnoTest extends TestCase
 
     public function testAceptaUnTurnoValido(): void
     {
-        $datos = ['mascota_id' => 101, 'fecha' => self::HOY, 'hora' => '17:30', 'motivo' => 'VACUNACION'];
+        $datos = ['mascota_id' => 101, 'fecha' => self::HOY, 'hora' => '17:30', 'motivo' => 'VACUNACION', 'plan_sanitario_id' => 5];
         [$limpios, $errores] = ValidadorTurno::validarAlta($datos, self::HOY);
 
         $this->assertSame([], $errores);
-        $this->assertSame($datos, $limpios);
+        // Un motivo suelto (como antes de la migración 026) queda como una lista de uno.
+        $this->assertSame([
+            'mascota_id' => 101, 'fecha' => self::HOY, 'hora' => '17:30',
+            'motivos' => [['motivo' => 'VACUNACION', 'plan_sanitario_id' => 5]], 'motivo' => 'VACUNACION',
+        ], $limpios);
+    }
+
+    // Migración 025: vacunación y desparasitación dicen cuál (un ítem del plan sanitario).
+    public function testVacunacionYDesparasitacionPidenCual(): void
+    {
+        $base = ['mascota_id' => 101, 'fecha' => self::HOY, 'hora' => '17:30'];
+
+        [, $errores] = ValidadorTurno::validarAlta($base + ['motivo' => 'VACUNACION'], self::HOY);
+        $this->assertSame(['plan_sanitario_id' => 'Elegí la vacuna'], $errores);
+
+        [, $errores] = ValidadorTurno::validarAlta($base + ['motivo' => 'DESPARASITACION', 'plan_sanitario_id' => '1'], self::HOY);
+        $this->assertSame(['plan_sanitario_id' => 'Elegí la desparasitación'], $errores);
+    }
+
+    public function testLosMotivosNuevosNoPidenNadaDelCalendario(): void
+    {
+        foreach (['CASTRACION', 'CIRUGIA', 'CONTROL', 'URGENCIA', 'CONSULTA'] as $motivo) {
+            $datos = ['mascota_id' => 101, 'fecha' => self::HOY, 'hora' => '17:30', 'motivo' => $motivo, 'plan_sanitario_id' => 5];
+            [$limpios, $errores] = ValidadorTurno::validarAlta($datos, self::HOY);
+
+            $this->assertSame([], $errores, $motivo);
+            // Si llega, no se usa: el turno no queda atado al calendario.
+            $this->assertSame([['motivo' => $motivo]], $limpios['motivos'], $motivo);
+        }
+    }
+
+    // Migración 026: un turno con varios motivos.
+    public function testVariosMotivos(): void
+    {
+        $base = ['mascota_id' => 101, 'fecha' => self::HOY, 'hora' => '17:30'];
+        $motivos = [
+            ['motivo' => 'VACUNACION', 'plan_sanitario_id' => 5],
+            ['motivo' => 'VACUNACION', 'plan_sanitario_id' => 2],
+            ['motivo' => 'CONTROL'],
+        ];
+        [$limpios, $errores] = ValidadorTurno::validarAlta($base + ['motivos' => $motivos], self::HOY);
+        $this->assertSame([], $errores);
+        $this->assertSame($motivos, $limpios['motivos']);
+        $this->assertSame('VACUNACION', $limpios['motivo']);   // el principal: el primero
+
+        // El chequeo de adopción es el principal aunque no venga primero (Adopciones lo busca en turno.motivo).
+        [$limpios] = ValidadorTurno::validarAlta($base + ['motivos' => [['motivo' => 'CONSULTA'], ['motivo' => 'CHEQUEO_ADOPCION']]], self::HOY);
+        $this->assertSame('CHEQUEO_ADOPCION', $limpios['motivo']);
+
+        [, $errores] = ValidadorTurno::validarAlta($base + ['motivos' => [['motivo' => 'CONTROL'], ['motivo' => 'CONTROL']]], self::HOY);
+        $this->assertSame(['motivos' => 'Hay un motivo repetido'], $errores);
+
+        [, $errores] = ValidadorTurno::validarAlta($base + ['motivos' => [['motivo' => 'VACUNACION', 'plan_sanitario_id' => 5], ['motivo' => 'VACUNACION', 'plan_sanitario_id' => 5]]], self::HOY);
+        $this->assertSame(['motivos' => 'Hay un motivo repetido'], $errores);
+
+        [, $errores] = ValidadorTurno::validarAlta($base + ['motivos' => []], self::HOY);
+        $this->assertSame(['motivos' => 'Elegí al menos un motivo'], $errores);
+
+        [, $errores] = ValidadorTurno::validarAlta($base + ['motivos' => [['motivo' => 'VACUNACION']]], self::HOY);
+        $this->assertSame(['plan_sanitario_id' => 'Elegí la vacuna'], $errores);
     }
 
     public function testMarcaCadaCampoInvalido(): void
@@ -22,7 +81,7 @@ class ValidadorTurnoTest extends TestCase
             self::HOY
         );
 
-        $this->assertSame(['mascota_id', 'fecha', 'hora', 'motivo'], array_keys($errores));
+        $this->assertSame(['mascota_id', 'fecha', 'hora', 'motivos'], array_keys($errores));
     }
 
     public function testNoAceptaUnaFechaPasada(): void

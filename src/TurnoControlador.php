@@ -68,6 +68,30 @@ class TurnoControlador
             return;
         }
 
+        // Cada vacunación o desparasitación (migraciones 025 y 026): tiene que estar en el calendario de la
+        // mascota sin dar, sin una dosis anterior pendiente y sin otro turno para lo mismo.
+        $calendario = new CalendarioSanitario(Database::conectar());
+        foreach ($datos['motivos'] as $i => $motivo) {
+            if (!isset($motivo['plan_sanitario_id'])) {
+                continue;
+            }
+
+            $evento = $calendario->eventoParaTurno($datos['mascota_id'], $motivo['plan_sanitario_id'], $motivo['motivo']);
+
+            if ($evento['estado'] === 'mascota_inexistente') {
+                Response::error('Mascota no encontrada', 404);
+                return;
+            }
+
+            if ($evento['estado'] !== 'ok') {
+                $codigo = $evento['estado'] === 'plan_invalido' ? 400 : 409;
+                Response::error($evento['mensaje'], $codigo, ['plan_sanitario_id' => $evento['mensaje']]);
+                return;
+            }
+
+            $datos['motivos'][$i]['evento_sanitario_id'] = $evento['evento_id'];
+        }
+
         $repositorio = self::repositorio();
         $resultado = $repositorio->crear($datos, (int) $sesion['id'], self::precioPara($datos['fecha'], $datos['hora']));
 

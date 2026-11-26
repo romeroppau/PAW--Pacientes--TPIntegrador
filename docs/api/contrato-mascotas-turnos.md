@@ -31,6 +31,7 @@ mascotas. Etapa 3: el alta de turnos (veterinario) y el alta, la edición y la b
 ```json
 {
   "id": 101, "fecha": "2026-11-05", "hora": "08:00", "motivo": "CONSULTA", "estado": "PROGRAMADO",
+  "motivos": [ { "motivo": "CONSULTA", "evento_sanitario": null } ],
   "mascota": { "id": 101, "nombre": "Firulais", "especie": "PERRO" },
   "duenio": { "id": 102, "nombre": "Cliente de Prueba", "telefono": "1155550102" },
   "veterinario": { "id": 101, "nombre": "Veterinaria de Prueba" },
@@ -99,8 +100,31 @@ mascotas. Etapa 3: el alta de turnos (veterinario) y el alta, la edición y la b
 `POST /api/pacientes/turnos` — Veterinario. Los turnos se coordinan por WhatsApp y los carga el veterinario;
 el veterinario del turno es el de la sesión.
 
-Cuerpo: `{"mascota_id": 101, "fecha": "2026-11-10", "hora": "10:30", "motivo": "CONSULTA"}`.
-`motivo`: `CONSULTA`, `VACUNACION` o `CHEQUEO_ADOPCION`. El turno queda `PROGRAMADO`.
+Cuerpo (migración 026, **varios motivos**):
+
+```json
+{ "mascota_id": 101, "fecha": "2026-11-10", "hora": "10:30",
+  "motivos": [ { "motivo": "VACUNACION", "plan_sanitario_id": 5 },
+               { "motivo": "VACUNACION", "plan_sanitario_id": 2 },
+               { "motivo": "CONTROL" } ] }
+```
+Cada `motivo`: `CONSULTA`, `VACUNACION`, `DESPARASITACION`, `CASTRACION`, `CIRUGIA`, `CONTROL`, `URGENCIA`
+o `CHEQUEO_ADOPCION`. De 1 a 8 motivos, sin repetir (dos vacunaciones con vacunas distintas sí). Por
+compatibilidad también se acepta uno suelto: `{"motivo": "CONSULTA"}` (con su `plan_sanitario_id` si es
+del calendario). El turno queda `PROGRAMADO`.
+
+**Vacunación y desparasitación (migración 025).** Cada una lleva `plan_sanitario_id`: cuál (un ítem del
+plan de la especie, ver `contrato-calendario.md`). El turno se saca solo si cada una:
+- es de la especie de la mascota y del tipo del motivo (400 si no);
+- está en el calendario de la mascota sin dar (409: `"En el calendario de Luna no figura que se le tenga
+  que dar: Antirrábica. Cargala primero en el calendario."`);
+- no tiene una dosis anterior de la misma vacuna sin dar (409);
+- no tiene otro turno programado o en atención para lo mismo (409).
+
+El mensaje de los 409 viene también en `campos.plan_sanitario_id`; los errores de la lista, en
+`campos.motivos`. El turno devuelve `motivos` (cada uno con su `evento_sanitario`: `{"id", "nombre",
+"aplicacion"}` o `null`) y `motivo`, el **principal**: el chequeo de adopción si está entre los motivos
+(Adopciones lo busca ahí) y, si no, el primero. Al finalizar la consulta, cada evento queda dado.
 - 201: `{"turno": { ... }}`
 - 400: un error por campo (`mascota_id` no entero; fecha inválida, anterior a hoy o de más de un año adelante; hora que no es `HH:MM` o fuera del horario de atención; motivo inválido). El horario lo configura la veterinaria (ver "Horario de atención"); si no lo cambió, es de 08:00 a 20:00 y el último turno puede empezar a las 19:59.
 - 404: la mascota no existe o está dada de baja.

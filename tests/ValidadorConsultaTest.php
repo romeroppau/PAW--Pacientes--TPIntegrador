@@ -66,4 +66,31 @@ class ValidadorConsultaTest extends TestCase
         $this->assertSame([], ValidadorConsulta::validarParaFinalizar($consulta + ['total' => '99999999.99']));
         $this->assertCount(1, ValidadorConsulta::validarParaFinalizar($consulta + ['total' => '100000149.99']));
     }
+
+    // Migraciones 025 y 026: cada vacuna o desparasitación del turno lleva su insumo.
+    public function testFinalizarExigeElInsumoDeCadaVacuna(): void
+    {
+        $consulta = [
+            'diagnostico' => 'Sano', 'valor_base' => '15000.00',
+            'eventos_sanitarios' => [
+                ['id' => 9, 'nombre' => 'Antirrábica', 'aplicacion' => 'ANTIRRABICA'],
+                ['id' => 10, 'nombre' => 'Séxtuple (2.ª dosis)', 'aplicacion' => 'SEXTUPLE'],
+            ],
+            'insumos' => [['insumo_id' => 101, 'aplicacion' => null]],
+        ];
+
+        $this->assertSame(
+            ['Falta cargar en los insumos la dosis de: Antirrábica, Séxtuple (2.ª dosis).'],
+            ValidadorConsulta::validarParaFinalizar($consulta)
+        );
+
+        $consulta['insumos'][] = ['insumo_id' => 104, 'aplicacion' => 'SEXTUPLE'];
+        $this->assertSame(
+            ['Falta cargar en los insumos la dosis de: Antirrábica.'],
+            ValidadorConsulta::validarParaFinalizar($consulta)
+        );
+
+        $consulta['insumos'][] = ['insumo_id' => 106, 'aplicacion' => 'ANTIRRABICA'];
+        $this->assertSame([], ValidadorConsulta::validarParaFinalizar($consulta));
+    }
 }

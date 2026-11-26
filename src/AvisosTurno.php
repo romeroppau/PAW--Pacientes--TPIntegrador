@@ -12,6 +12,11 @@ class AvisosTurno
     private const MOTIVOS = [
         'CONSULTA' => 'consulta',
         'VACUNACION' => 'vacunación',
+        'DESPARASITACION' => 'desparasitación',
+        'CASTRACION' => 'castración',
+        'CIRUGIA' => 'cirugía',
+        'CONTROL' => 'control',
+        'URGENCIA' => 'urgencia',
         'CHEQUEO_ADOPCION' => 'chequeo de adopción',
     ];
 
@@ -69,9 +74,20 @@ class AvisosTurno
         return $dias[(int) date('w', $momento)] . ' ' . date('d/m', $momento) . ' a las ' . substr($hora, 0, 5);
     }
 
+    // Todos los motivos del turno (migración 026): "vacunación (Antirrábica), vacunación (Séxtuple, 2.ª dosis)
+    // y control". El paréntesis del nombre de la dosis pasa a ir después de una coma.
     private static function motivo(array $turno): string
     {
-        return self::MOTIVOS[$turno['motivo']] ?? 'consulta';
+        $textos = array_map(function (array $m): string {
+            $texto = self::MOTIVOS[$m['motivo']] ?? 'consulta';
+            $evento = $m['evento_sanitario'] ?? null;
+
+            return $evento === null ? $texto : "$texto (" . preg_replace('/\s*\((.+)\)$/u', ', $1', $evento['nombre']) . ')';
+        }, $turno['motivos'] ?? [['motivo' => $turno['motivo']]]);
+
+        $ultimo = array_pop($textos);
+
+        return $textos === [] ? $ultimo : implode(', ', $textos) . ' y ' . $ultimo;
     }
 
     // " La consulta: $ 12.750 (15 % de descuento)." si el turno guardó su precio (migración 020).
