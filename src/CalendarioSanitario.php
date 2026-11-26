@@ -8,6 +8,9 @@
 // las dosis, y el veterinario edita el calendario (agregar, marcarDada, cambiarFecha, quitar).
 // El calendario no se arma solo: lo carga el veterinario, de a una, y una dosis se agrega recién con
 // las anteriores de la misma vacuna dadas (25/11).
+// Desde el 26/11: entre dos dosis de la misma vacuna tienen que pasar los días mínimos que configura la
+// veterinaria (IntervalosVacunas), y dar una dosis ya no agrega sola la siguiente: el calendario sugiere
+// la próxima (proxima_sugerida) y la veterinaria la agrega si corresponde.
 // Las reglas de fechas y estados (los métodos static) no usan la base: se prueban con PHPUnit.
 class CalendarioSanitario
 {
@@ -47,7 +50,7 @@ class CalendarioSanitario
         // Con su ítem del plan, si se dio en una consulta y el turno programado o en atención que tiene.
         $eventos = $this->filas(
             "SELECT e.id, e.tipo, e.nombre, e.fecha_programada, e.fecha_aplicada, e.consulta_id,
-                    e.plan_sanitario_id, p.aplicacion,
+                    e.plan_sanitario_id, p.aplicacion, p.repetir_cada_meses,
                     (SELECT t.id FROM turno_motivo tm JOIN turno t ON t.id = tm.turno_id
                      WHERE tm.evento_sanitario_id = e.id AND t.estado IN ('PROGRAMADO', 'EN_ATENCION')
                      ORDER BY t.fecha, t.hora LIMIT 1) AS turno_id,
@@ -58,6 +61,29 @@ class CalendarioSanitario
              WHERE e.mascota_id = ? ORDER BY e.fecha_programada, e.id",
             [$mascotaId]
         );
+
+        // La próxima dosis sugerida (26/11): para la última dada de un ítem que se repite (antirrábica,
+        // refuerzo anual, desparasitación), si no tiene otra cargada sin dar. No se agrega sola.
+        $ultimaDada = [];
+        $sinDar = [];
+        foreach ($eventos as $e) {
+            if ($e['plan_sanitario_id'] === null) {
+                continue;
+            }
+            if ($e['fecha_aplicada'] === null) {
+                $sinDar[$e['plan_sanitario_id']] = true;
+            } elseif (!isset($ultimaDada[$e['plan_sanitario_id']]) || $e['fecha_aplicada'] >= $ultimaDada[$e['plan_sanitario_id']]['fecha_aplicada']) {
+                $ultimaDada[$e['plan_sanitario_id']] = $e;
+            }
+        }
+        $sugerida = function (array $e) use ($ultimaDada, $sinDar): ?string {
+            $plan = $e['plan_sanitario_id'];
+            if ($e['fecha_aplicada'] === null || $e['repetir_cada_meses'] === null || isset($sinDar[$plan])
+                || (int) $ultimaDada[$plan]['id'] !== (int) $e['id']) {
+                return null;
+            }
+            return self::sumarMeses($e['fecha_aplicada'], (int) $e['repetir_cada_meses']);
+        };
 
         return array_map(fn (array $e): array => [
             'id' => (int) $e['id'],
@@ -70,7 +96,9 @@ class CalendarioSanitario
             // Dada en una consulta de HuellaVet (true) o marcada a mano, por ejemplo en otra veterinaria (false).
             'en_consulta' => $e['consulta_id'] !== null,
             'turno' => $e['turno_id'] === null ? null : ['id' => (int) $e['turno_id'], 'fecha' => $e['turno_fecha']],
-            'estado' => self::estadoDe($e['fecha_programada'], $e['fecha_aplicada'], $hoy)
+            'estado' => self::estadoDe($e['fecha_programada'], $e['fecha_aplicada'], $hoy),
+            // AAAA-MM-DD o null: la fecha que se sugiere para la próxima dosis (la veterinaria la agrega).
+            'proxima_sugerida' => $sugerida($e),
         ], $eventos);
     }
 
@@ -78,7 +106,9 @@ class CalendarioSanitario
     // Cada método devuelve 'ok' o el motivo por el que no se hizo; el controlador arma el mensaje.
 
     // Los ítems del plan de una especie, para agregarlos al calendario y para elegir la vacuna de un turno.
-    public function plan(string $especie): array
+    // Con $mascotaId, cada uno trae además fecha_minima: desde cuándo se puede dar según las dosis que
+    // la mascota ya tiene dadas y los días mínimos configurados (null si no hay límite).
+    public function plan(string $especie, ?int $mascotaId = null): array
     {
         $filas = $this->filas(
             'SELECT id, tipo, nombre, aplicacion, orden, repetir_cada_meses, automatico
@@ -94,6 +124,7 @@ class CalendarioSanitario
             'orden' => (int) $p['orden'],
             'se_repite_cada_meses' => $p['repetir_cada_meses'] === null ? null : (int) $p['repetir_cada_meses'],
             'automatico' => (bool) $p['automatico'],
+            'fecha_minima' => $mascotaId === null ? null : $this->fechaMinima($mascotaId, (int) $p['id']),
         ], $filas);
     }
 
@@ -101,7 +132,8 @@ class CalendarioSanitario
     // 'ok', 'plan_invalido' (no existe o es de otra especie), 'dosis_anteriores' (con $faltan: los
     // nombres de las dosis anteriores de la misma vacuna que no están dadas en el calendario),
     // 'ya_pendiente' (ya lo tiene sin dar) o 'ya_dada' (es de una sola vez y ya se lo dieron).
-    public function agregar(int $mascotaId, int $planId, string $fecha, ?array &$faltan = null): string
+    // 'intervalo' (con $intervalo: el texto): no respeta los días mínimos desde una dosis dada (26/11).
+    public function agregar(int $mascotaId, int $planId, string $fecha, ?array &$faltan = null, ?string &$intervalo = null): string
     {
         $item = $this->fila(
             'SELECT p.id, p.tipo, p.nombre, p.aplicacion, p.orden, p.especie, p.repetir_cada_meses
@@ -142,6 +174,11 @@ class CalendarioSanitario
             return 'ya_dada';
         }
 
+        $intervalo = $this->controlarIntervalo($mascotaId, $planId, $fecha, null, false);
+        if ($intervalo !== null) {
+            return 'intervalo';
+        }
+
         $this->insertarEvento($mascotaId, $planId, $item['tipo'], $item['nombre'], $fecha);
 
         return 'ok';
@@ -149,8 +186,9 @@ class CalendarioSanitario
 
     // Marca como dado, en la fecha que dice el veterinario, un evento que se dio fuera de una consulta
     // (por ejemplo, en otra veterinaria). Si se repite, agrega el siguiente desde esa fecha.
-    // 'ok', 'inexistente', 'ya_dada', 'con_turno' o 'dosis_anterior' (con $anterior: su nombre).
-    public function marcarDada(int $mascotaId, int $eventoId, string $fecha, ?string &$anterior = null): string
+    // 'ok', 'inexistente', 'ya_dada', 'con_turno', 'dosis_anterior' (con $anterior: su nombre) o
+    // 'intervalo' (con $intervalo: el texto; 26/11). Ya no agrega sola la próxima dosis.
+    public function marcarDada(int $mascotaId, int $eventoId, string $fecha, ?string &$anterior = null, ?string &$intervalo = null): string
     {
         $evento = $this->eventoDe($mascotaId, $eventoId);
 
@@ -171,11 +209,19 @@ class CalendarioSanitario
             return 'con_turno';
         }
 
+        if ($evento['plan_sanitario_id'] !== null) {
+            $intervalo = $this->controlarIntervalo($mascotaId, (int) $evento['plan_sanitario_id'], $fecha, $eventoId, true);
+            if ($intervalo !== null) {
+                return 'intervalo';
+            }
+        }
+
         return $this->aplicar($eventoId, $fecha, null) ? 'ok' : 'ya_dada';
     }
 
-    // Cambia la fecha en que le toca un evento que todavía no se dio. 'ok', 'inexistente' o 'ya_dada'.
-    public function cambiarFecha(int $mascotaId, int $eventoId, string $fecha): string
+    // Cambia la fecha en que le toca un evento que todavía no se dio. 'ok', 'inexistente', 'ya_dada' o
+    // 'intervalo' (con $intervalo: el texto; 26/11).
+    public function cambiarFecha(int $mascotaId, int $eventoId, string $fecha, ?string &$intervalo = null): string
     {
         $evento = $this->eventoDe($mascotaId, $eventoId);
 
@@ -185,6 +231,13 @@ class CalendarioSanitario
 
         if ($evento['fecha_aplicada'] !== null) {
             return 'ya_dada';
+        }
+
+        if ($evento['plan_sanitario_id'] !== null) {
+            $intervalo = $this->controlarIntervalo($mascotaId, (int) $evento['plan_sanitario_id'], $fecha, $eventoId, false);
+            if ($intervalo !== null) {
+                return 'intervalo';
+            }
         }
 
         $this->db->prepare('UPDATE evento_sanitario SET fecha_programada = ? WHERE id = ? AND fecha_aplicada IS NULL')
@@ -224,8 +277,9 @@ class CalendarioSanitario
     // El evento del calendario que se da en un turno de $motivo (VACUNACION o DESPARASITACION) del ítem
     // $planId. Devuelve ['estado' => 'ok', 'evento_id' => n, 'nombre' => ...] o, si no se puede sacar el
     // turno, ['estado' => ..., 'mensaje' => ...] con el texto para la veterinaria:
-    // 'mascota_inexistente', 'plan_invalido', 'no_en_calendario', 'dosis_anterior' o 'con_turno'.
-    public function eventoParaTurno(int $mascotaId, int $planId, string $motivo): array
+    // 'mascota_inexistente', 'plan_invalido', 'no_en_calendario', 'dosis_anterior', 'con_turno' o, con
+    // $fecha (la del turno), 'intervalo': no respeta los días mínimos desde una dosis dada (26/11).
+    public function eventoParaTurno(int $mascotaId, int $planId, string $motivo, ?string $fecha = null): array
     {
         $mascota = $this->fila('SELECT nombre, especie FROM mascota WHERE id = ? AND activo = 1', [$mascotaId]);
 
@@ -267,6 +321,13 @@ class CalendarioSanitario
         if ($turno !== null) {
             $dia = date('d/m/Y', strtotime($turno['fecha']));
             return ['estado' => 'con_turno', 'mensaje' => "{$mascota['nombre']} ya tiene turno para {$evento['nombre']} el $dia."];
+        }
+
+        if ($fecha !== null) {
+            $intervalo = $this->controlarIntervalo($mascotaId, $planId, $fecha, (int) $evento['id'], false);
+            if ($intervalo !== null) {
+                return ['estado' => 'intervalo', 'mensaje' => $intervalo];
+            }
         }
 
         return ['estado' => 'ok', 'evento_id' => (int) $evento['id'], 'nombre' => $evento['nombre']];
@@ -314,8 +375,10 @@ class CalendarioSanitario
 
     // ---------- Ayudas ----------
 
-    // Marca el evento como aplicado en $fecha (en la consulta $consultaId, o a mano si es null) y, si su
-    // ítem del plan se repite, agrega el siguiente desde esa fecha. false si no existe o ya estaba aplicado.
+    // Marca el evento como aplicado en $fecha (en la consulta $consultaId, o a mano si es null). false si
+    // no existe o ya estaba aplicado. 26/11: ya no agrega sola la próxima dosis (el calendario lo carga
+    // la veterinaria; eventos() sugiere la fecha). Antes, cada vez que se marcaba como dada una dosis
+    // que se repite se creaba otra, y se podían acumular dosis repetidas.
     private function aplicar(int $eventoId, string $fecha, ?int $consultaId): bool
     {
         $sentencia = $this->db->prepare(
@@ -323,30 +386,103 @@ class CalendarioSanitario
         );
         $sentencia->execute([$fecha, $consultaId, $eventoId]);
 
-        if ($sentencia->rowCount() !== 1) {
-            return false;
+        return $sentencia->rowCount() === 1;
+    }
+
+    // Los días mínimos entre dosis (IntervalosVacunas): null si $fecha los respeta para el ítem $planId
+    // de la mascota, o el texto para la veterinaria. $excluir: el evento que se está cambiando o dando.
+    // $dada: la fecha es en la que se dio (texto "se dio"), no en la que le toca.
+    public function controlarIntervalo(int $mascotaId, int $planId, string $fecha, ?int $excluir, bool $dada): ?string
+    {
+        foreach ($this->reglas($mascotaId, $planId, $excluir) as [$dias, $aplicadas, $item]) {
+            $choca = IntervalosVacunas::conflicto($fecha, array_column($aplicadas, 'fecha_aplicada'), $dias);
+            if ($choca === null) {
+                continue;
+            }
+
+            $otra = array_values(array_filter($aplicadas, fn (array $a): bool => $a['fecha_aplicada'] === $choca))[0];
+            $que = $item['tipo'] === 'DESPARASITACION' ? 'desparasitaciones' : 'dosis';
+            $texto = "Entre dos $que tienen que pasar al menos $dias días: {$otra['nombre']} se dio el "
+                . date('d/m/Y', strtotime($choca)) . '.';
+            if ($choca < $fecha || !$dada) {
+                $desde = (new DateTimeImmutable($choca))->modify("+$dias days")->format('d/m/Y');
+                $texto .= " {$item['nombre']} se puede dar desde el $desde.";
+            }
+
+            return $texto . ' Los días se cambian en Configuración → Vacunas.';
         }
 
-        $evento = $this->fila(
-            'SELECT e.mascota_id, e.tipo, e.nombre, p.id AS plan_id, p.repetir_cada_meses
+        return null;
+    }
+
+    // Desde cuándo se puede dar el ítem $planId según las dosis dadas (la más tardía de las reglas), o null.
+    private function fechaMinima(int $mascotaId, int $planId): ?string
+    {
+        $minima = null;
+        foreach ($this->reglas($mascotaId, $planId, null) as [$dias, $aplicadas]) {
+            $fecha = IntervalosVacunas::fechaMinima(array_column($aplicadas, 'fecha_aplicada'), $dias);
+            if ($fecha !== null && ($minima === null || $fecha > $minima)) {
+                $minima = $fecha;
+            }
+        }
+
+        return $minima;
+    }
+
+    // Las reglas de días mínimos de un ítem para la mascota: [[días, dosis dadas, ítem], ...].
+    // Entre dosis: contra cualquier dosis dada de la misma aplicación. De refuerzo (el ítem se repite):
+    // contra las dosis dadas de ese mismo ítem.
+    private function reglas(int $mascotaId, int $planId, ?int $excluir): array
+    {
+        $item = $this->fila('SELECT id, tipo, nombre, aplicacion, repetir_cada_meses FROM plan_sanitario WHERE id = ?', [$planId]);
+        if ($item === null || $item['aplicacion'] === null) {
+            return [];
+        }
+
+        $aplicadas = $this->filas(
+            'SELECT e.id, e.nombre, e.plan_sanitario_id, e.fecha_aplicada
              FROM evento_sanitario e JOIN plan_sanitario p ON p.id = e.plan_sanitario_id
-             WHERE e.id = ?',
-            [$eventoId]
+             WHERE e.mascota_id = ? AND p.aplicacion = ? AND e.fecha_aplicada IS NOT NULL AND e.id <> ?',
+            [$mascotaId, $item['aplicacion'], $excluir ?? 0]
         );
 
-        if ($evento !== null && $evento['repetir_cada_meses'] !== null) {
-            $siguiente = self::sumarMeses($fecha, (int) $evento['repetir_cada_meses']);
-            $this->insertarEvento((int) $evento['mascota_id'], (int) $evento['plan_id'], $evento['tipo'], $evento['nombre'], $siguiente);
+        $reglas = [[IntervalosVacunas::dias($item['aplicacion'], false), $aplicadas, $item]];
+        if ($item['repetir_cada_meses'] !== null) {
+            $mismas = array_values(array_filter($aplicadas, fn (array $a): bool => (int) $a['plan_sanitario_id'] === (int) $item['id']));
+            $reglas[] = [IntervalosVacunas::dias($item['aplicacion'], true), $mismas, $item];
         }
 
-        return true;
+        // Una aplicación sin regla configurada no limita.
+        return array_values(array_filter($reglas, fn (array $r): bool => $r[0] !== null));
+    }
+
+    // Los días mínimos para los motivos de vacunación o desparasitación de un turno si se pasa a
+    // $fecha (al reprogramarlo): null o el texto del primero que no los respeta.
+    public function intervaloParaTurno(int $turnoId, string $fecha): ?string
+    {
+        $motivos = $this->filas(
+            'SELECT t.mascota_id, e.id AS evento_id, e.plan_sanitario_id
+             FROM turno_motivo tm JOIN turno t ON t.id = tm.turno_id
+             JOIN evento_sanitario e ON e.id = tm.evento_sanitario_id
+             WHERE tm.turno_id = ? AND e.plan_sanitario_id IS NOT NULL AND e.fecha_aplicada IS NULL',
+            [$turnoId]
+        );
+
+        foreach ($motivos as $m) {
+            $texto = $this->controlarIntervalo((int) $m['mascota_id'], (int) $m['plan_sanitario_id'], $fecha, (int) $m['evento_id'], false);
+            if ($texto !== null) {
+                return $texto;
+            }
+        }
+
+        return null;
     }
 
     // Un evento de la mascota con su aplicación y su dosis, o null si no es de ella.
     private function eventoDe(int $mascotaId, int $eventoId): ?array
     {
         return $this->fila(
-            'SELECT e.id, e.nombre, e.fecha_aplicada, p.aplicacion, p.orden
+            'SELECT e.id, e.nombre, e.fecha_aplicada, e.plan_sanitario_id, p.aplicacion, p.orden
              FROM evento_sanitario e LEFT JOIN plan_sanitario p ON p.id = e.plan_sanitario_id
              WHERE e.id = ? AND e.mascota_id = ?',
             [$eventoId, $mascotaId]

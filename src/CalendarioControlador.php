@@ -49,9 +49,13 @@ class CalendarioControlador
             }
 
             $faltan = [];
-            switch ($calendario->agregar($mascota['id'], $datos['plan_sanitario_id'], $datos['fecha_programada'], $faltan)) {
+            $intervalo = null;
+            switch ($calendario->agregar($mascota['id'], $datos['plan_sanitario_id'], $datos['fecha_programada'], $faltan, $intervalo)) {
                 case 'ok':
                     return true;
+                case 'intervalo':
+                    Response::error($intervalo, 409, ['fecha_programada' => $intervalo]);
+                    return false;
                 case 'dosis_anteriores':
                     Response::error('Para cargarla, primero cargá y marcá como dadas: ' . implode(', ', $faltan), 409);
                     return false;
@@ -80,7 +84,13 @@ class CalendarioControlador
             }
 
             $anterior = null;
-            $resultado = $calendario->marcarDada($mascota['id'], $eventoId, $datos['fecha_aplicada'], $anterior);
+            $intervalo = null;
+            $resultado = $calendario->marcarDada($mascota['id'], $eventoId, $datos['fecha_aplicada'], $anterior, $intervalo);
+
+            if ($resultado === 'intervalo') {
+                Response::error($intervalo, 409, ['fecha_aplicada' => $intervalo]);
+                return false;
+            }
 
             if ($resultado === 'dosis_anterior') {
                 Response::error("Primero marcá como dada: $anterior", 409);
@@ -106,7 +116,13 @@ class CalendarioControlador
                 return false;
             }
 
-            $resultado = $calendario->cambiarFecha($mascota['id'], $eventoId, $datos['fecha_programada']);
+            $intervalo = null;
+            $resultado = $calendario->cambiarFecha($mascota['id'], $eventoId, $datos['fecha_programada'], $intervalo);
+
+            if ($resultado === 'intervalo') {
+                Response::error($intervalo, 409, ['fecha_programada' => $intervalo]);
+                return false;
+            }
 
             return $resultado === 'ok' || self::errorEvento($resultado);
         });
@@ -146,7 +162,8 @@ class CalendarioControlador
             ],
             'vacunas_al_dia' => CalendarioSanitario::vacunasAlDia($eventos),
             'eventos' => $eventos,
-            'plan' => $calendario->plan($mascota['especie']),
+            // Con la fecha mínima de cada ítem para esta mascota (días mínimos entre dosis, 26/11).
+            'plan' => $calendario->plan($mascota['especie'], $mascota['id']),
         ];
     }
 
