@@ -24,8 +24,9 @@ fecha en que le toca y la fecha en que se aplicó.
 - Lo llama la consulta (rol 4) al finalizar un turno de `VACUNACION` o `DESPARASITACION`, dentro de su
   transacción. Marca el evento del turno (`turno.evento_sanitario_id`, migración 025).
 - Marca el evento con la fecha de hoy y la consulta en la que se aplicó.
-- Si el ítem del plan se repite (por ejemplo, la antirrábica cada 12 meses), agrega el siguiente
-  evento: la fecha de aplicación más `repetir_cada_meses`.
+- Desde el 26/11 **no agrega la siguiente dosis**: si el ítem se repite, el evento dado trae
+  `proxima_sugerida` y la veterinaria la agrega si corresponde (antes se agregaba sola, y con
+  "Marcar como dada" se repetían dosis).
 - Un evento ya aplicado no se vuelve a marcar (devuelve `false`).
 - Un turno de vacunación de antes de la migración 025 no tiene evento: la consulta usa
   `CalendarioSanitario::vacunaPendiente($mascotaId)`, la vacuna sin aplicar con la fecha más vieja
@@ -51,16 +52,16 @@ Una mascota tiene las **vacunas al día** si no tiene ninguna vacuna `VENCIDO` (
   "vacunas_al_dia": false,
   "eventos": [
     { "id": 105, "tipo": "VACUNA", "nombre": "Séxtuple (1.ª dosis)", "plan_sanitario_id": 2, "aplicacion": "SEXTUPLE",
-      "fecha_programada": "2026-10-08", "fecha_aplicada": "2026-10-08", "en_consulta": true, "turno": null, "estado": "APLICADO" },
+      "fecha_programada": "2026-10-08", "fecha_aplicada": "2026-10-08", "en_consulta": true, "turno": null, "estado": "APLICADO", "proxima_sugerida": null },
     { "id": 106, "tipo": "VACUNA", "nombre": "Séxtuple (2.ª dosis)", "plan_sanitario_id": 3, "aplicacion": "SEXTUPLE",
       "fecha_programada": "2026-10-29", "fecha_aplicada": null, "en_consulta": false,
-      "turno": { "id": 102, "fecha": "2026-11-25" }, "estado": "VENCIDO" }
+      "turno": { "id": 102, "fecha": "2026-11-25" }, "estado": "VENCIDO", "proxima_sugerida": null }
   ],
   "plan": [
     { "id": 2, "tipo": "VACUNA", "nombre": "Séxtuple (1.ª dosis)", "aplicacion": "SEXTUPLE", "orden": 1,
-      "se_repite_cada_meses": null, "automatico": true },
+      "se_repite_cada_meses": null, "automatico": true, "fecha_minima": null },
     { "id": 13, "tipo": "VACUNA", "nombre": "Tos de las perreras", "aplicacion": "TOS_PERRERAS", "orden": 1,
-      "se_repite_cada_meses": 12, "automatico": false }
+      "se_repite_cada_meses": 12, "automatico": false, "fecha_minima": "2027-10-01" }
   ]
 }
 ```
@@ -70,6 +71,10 @@ Los eventos van ordenados por fecha programada. Desde la migración 025:
 - `turno`: el turno programado o en atención para darla (por sus motivos, `turno_motivo`), o `null`.
 - `plan`: los ítems del plan de la especie, para agregarlos al calendario y elegir la vacuna de un turno.
   `aplicacion` dice qué vacuna es (la misma que `insumo.aplicacion`) y `orden`, qué dosis.
+- `proxima_sugerida` (26/11): en la última dosis dada de un ítem que se repite, si no hay otra sin dar
+  del mismo ítem, la fecha aplicada más `se_repite_cada_meses`. Si no, `null`.
+- `fecha_minima` (26/11): desde qué fecha se puede cargar ese ítem según las dosis ya dadas y los
+  días mínimos (ver "Días mínimos entre dosis"); `null` si no hay dosis anterior.
 - 404: la mascota no existe o es de otro cliente.
 
 ## Editar el calendario (migración 025)
@@ -84,19 +89,22 @@ el evento ya está dado (`"Esa vacuna o desparasitación ya está dada: no se ca
   (fecha inválida, anterior a hoy o de más de 3 años adelante).
 - 409: las dosis anteriores de la misma vacuna no están cargadas y dadas (`"Para cargarla, primero cargá
   y marcá como dadas: Séxtuple (1.ª dosis), Séxtuple (2.ª dosis)"`); ya está en el calendario sin dar
-  (`"Ya está en el calendario y todavía no se dio..."`); o es de una sola vez y ya se dio.
+  (`"Ya está en el calendario y todavía no se dio..."`); es de una sola vez y ya se dio; o no pasaron
+  los días mínimos desde la dosis anterior (`campos.fecha_programada`).
 
 ### Marcar como dada (fuera de una consulta)
 `POST /api/pacientes/mascotas/{id}/calendario-sanitario/{eventoId}/dada` — `{"fecha_aplicada": "2026-11-20"}`
-- Para lo que se dio en otra veterinaria. Queda con `en_consulta: false`. Si se repite, se agrega la
-  siguiente desde esa fecha.
+- Para lo que se dio en otra veterinaria. Queda con `en_consulta: false`. No agrega la siguiente
+  (26/11): ver `proxima_sugerida`.
 - 400: la fecha es inválida, posterior a hoy o anterior al nacimiento de la mascota.
 - 409: hay una dosis anterior de la misma vacuna sin dar (`"Primero marcá como dada: Séxtuple (1.ª dosis)"`),
-  o tiene un turno programado para darla (hay que cancelarlo, o darla en esa consulta).
+  o tiene un turno programado para darla (hay que cancelarlo, o darla en esa consulta), o no pasaron
+  los días mínimos desde otra dosis dada (`campos.fecha_aplicada`).
 
 ### Cambiar la fecha
 `PUT /api/pacientes/mascotas/{id}/calendario-sanitario/{eventoId}` — `{"fecha_programada": "2026-12-01"}`
 - 400: fecha inválida, anterior a hoy o de más de 3 años adelante.
+- 409: no pasaron los días mínimos desde la dosis anterior (`campos.fecha_programada`).
 
 ### Quitar
 `DELETE /api/pacientes/mascotas/{id}/calendario-sanitario/{eventoId}`
@@ -110,3 +118,25 @@ el evento ya está dado (`"Esa vacuna o desparasitación ya está dada: no se ca
   la misma vacuna sin dar (por ejemplo, en calendarios cargados antes de esta regla).
 - Para "arrancar por la segunda" (la primera se la dieron en otra veterinaria): cargar la primera,
   marcarla como dada y después cargar la segunda.
+
+## Días mínimos entre dosis (26/11)
+La veterinaria los configura en **Configuración → Vacunas** (Backend, `docs/api/contrato.md`); los
+valores por defecto están en `IntervalosVacunas::CLAVES`. Entre 1 y 730 días.
+
+| Vacuna (`aplicacion`) | Entre dosis | Entre refuerzos |
+|---|---|---|
+| `SEXTUPLE` | `dias_vacuna_sextuple_dosis` (21) | `dias_vacuna_sextuple_refuerzo` (330) |
+| `TRIPLE_FELINA` | `dias_vacuna_triple_felina_dosis` (21) | `dias_vacuna_triple_felina_refuerzo` (330) |
+| `LEUCEMIA_FELINA` | `dias_vacuna_leucemia_felina_dosis` (21) | `dias_vacuna_leucemia_felina_refuerzo` (330) |
+| `ANTIRRABICA` | `dias_vacuna_antirrabica` (330) | la misma |
+| `TOS_PERRERAS` | `dias_vacuna_tos_perreras` (330) | la misma |
+| `ANTIPARASITARIO` | `dias_desparasitacion` (14) | la misma |
+
+- **Entre dosis:** contra cualquier dosis dada de la misma vacuna, antes o después de la fecha.
+- **Entre refuerzos:** solo contra las dosis dadas del mismo ítem que se repite (el refuerzo anual
+  contra el refuerzo anterior), así el primer refuerzo no choca con la última dosis de cachorro.
+- Se controla al agregar, cambiar la fecha, marcar como dada, sacar un turno de vacunación o
+  desparasitación (con la fecha del turno) y reprogramarlo. Si no se cumple: 409 con
+  `"Entre dos dosis tienen que pasar al menos 330 días: Antirrábica se dio el 26/11/2026. Antirrábica se
+  puede dar desde el 22/10/2027. Los días se cambian en Configuración → Vacunas."`
+  (en `campos.fecha_programada`, `campos.fecha_aplicada` o `campos.fecha` del turno).
