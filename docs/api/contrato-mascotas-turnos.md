@@ -191,13 +191,17 @@ Cuerpo: `{"fecha": "2026-11-12", "hora": "17:30"}`. Mismas reglas de fecha y hor
 
 ## Avisos de turnos (25/11)
 
-Cuando la veterinaria **carga**, **reprograma** o **cancela** un turno, al dueño de la mascota le llega un aviso por la campana (`WEB`) y por `WHATSAPP` (tipo `TURNO`, migración 024). Pacientes los deja en Backend por `POST /internal/notificaciones` (`src/AvisosTurno.php`) y Backend manda el WhatsApp en el momento. Si Backend no responde, el turno queda igual y el error va al log. Marcar ausente no avisa. Los turnos de chequeo que crea Adopciones avisan desde Adopciones.
+Cuando la veterinaria **carga**, **reprograma** o **cancela** un turno, al dueño de la mascota le llega un aviso por la campana (`WEB`) y por `WHATSAPP` (tipo `TURNO`, migración 024). Pacientes los deja en Backend por `POST /internal/notificaciones` (`src/AvisosTurno.php`) y Backend manda el WhatsApp en el momento. Si Backend no responde, el turno queda igual y el error va al log. Marcar ausente no avisa.
+
+**El turno del chequeo de adopción (motivo `CHEQUEO_ADOPCION`, 27/11):**
+- Al cargarlo no se avisa: el aviso lo manda Adopciones al adoptante y a la rescatista cuando la veterinaria lo asigna a la adopción. Antes la rescatista, que todavía es la dueña de la mascota, recibía dos avisos distintos del mismo turno.
+- Si se reprograma o se cancela en la agenda y está asignado a una adopción en curso, el aviso va al **adoptante** y a la **rescatista**, por la campana y por WhatsApp. Pacientes lee el adoptante de la tabla `adopcion` (`SELECT`, permisos de la migración 007). Si no está asignado a ninguna adopción, avisa a la dueña como cualquier turno.
 
 | Cuándo | `id_operacion` |
 |---|---|
-| Carga | `turno-{id}-asignado-{web\|whatsapp}` |
-| Reprograma | `turno-{id}-reprogramado-{AAAAMMDDHHMMSS}-{web\|whatsapp}` |
-| Cancela | `turno-{id}-cancelado-{web\|whatsapp}` |
+| Carga | `turno-{id}-asignado-{web\|whatsapp}` (el chequeo de adopción, no) |
+| Reprograma | `turno-{id}-reprogramado-{AAAAMMDDHHMMSS}-{web\|whatsapp}`; el chequeo, `turno-{id}-reprogramado-{AAAAMMDDHHMMSS}-{adoptante\|rescatista}-{web\|whatsapp}` |
+| Cancela | `turno-{id}-cancelado-{web\|whatsapp}`; el chequeo, `turno-{id}-cancelado-{adoptante\|rescatista}-{web\|whatsapp}` |
 
 ## Dar de alta una mascota (etapa 3)
 `POST /api/pacientes/mascotas` — Cliente o rescatista. El dueño es el usuario de la sesión.

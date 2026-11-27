@@ -49,6 +49,75 @@ class AvisosTurno
         return self::avisos($turno, $mensaje, "turno-{$turno['id']}-cancelado");
     }
 
+    // ---------- Turno del chequeo de adopción (27/11) ----------
+    // Al cargarlo no se avisa: Adopciones avisa al adoptante y a la rescatista cuando la veterinaria lo
+    // asigna a la adopción (si no, la rescatista, que todavía es la dueña, recibía dos avisos distintos).
+    // Si después se reprograma o se cancela en la agenda, el aviso va al adoptante y a la rescatista
+    // (antes solo a la dueña, la rescatista: el adoptante no se enteraba).
+
+    // ¿Es el turno del chequeo de una adopción? (por su motivo principal o por uno de sus motivos)
+    public static function esChequeo(array $turno): bool
+    {
+        if (($turno['motivo'] ?? null) === 'CHEQUEO_ADOPCION') {
+            return true;
+        }
+
+        return in_array('CHEQUEO_ADOPCION', array_column($turno['motivos'] ?? [], 'motivo'), true);
+    }
+
+    // $adopcion: {adoptante_id, adoptante} (TurnoRepositorio::adopcionDelChequeo). $momento: AAAAMMDDHHMMSS.
+    public static function chequeoReprogramado(array $turno, array $adopcion, string $momento): array
+    {
+        $mascota = $turno['mascota']['nombre'];
+        $cuando = self::cuando($turno['fecha'], $turno['hora']);
+
+        return self::avisosDelChequeo(
+            $turno,
+            $adopcion,
+            "Cambiamos el turno del chequeo de adopción de $mascota: ahora es el $cuando en HuellaVet (Av. San Martín 1450, Luján). Si no podés ir, avisanos por WhatsApp.",
+            "Cambiamos el turno del chequeo de adopción de $mascota con {$adopcion['adoptante']}: ahora es el $cuando en HuellaVet.",
+            "turno-{$turno['id']}-reprogramado-$momento"
+        );
+    }
+
+    public static function chequeoCancelado(array $turno, array $adopcion): array
+    {
+        $mascota = $turno['mascota']['nombre'];
+        $cuando = self::cuando($turno['fecha'], $turno['hora']);
+
+        return self::avisosDelChequeo(
+            $turno,
+            $adopcion,
+            "Cancelamos el turno del chequeo de adopción de $mascota del $cuando. Te vamos a escribir por WhatsApp para coordinar uno nuevo.",
+            "Cancelamos el turno del chequeo de adopción de $mascota con {$adopcion['adoptante']} del $cuando. La veterinaria va a coordinar uno nuevo.",
+            "turno-{$turno['id']}-cancelado"
+        );
+    }
+
+    // Al adoptante y a la rescatista (la dueña de la mascota hasta que se completa la adopción), por
+    // la campana y por WhatsApp.
+    private static function avisosDelChequeo(array $turno, array $adopcion, string $alAdoptante, string $aLaRescatista, string $operacion): array
+    {
+        $avisos = [];
+        foreach ([
+            'adoptante' => [(int) $adopcion['adoptante_id'], $alAdoptante],
+            'rescatista' => [(int) $turno['duenio']['id'], $aLaRescatista],
+        ] as $quien => [$usuarioId, $mensaje]) {
+            foreach (self::CANALES as $canal => $sufijo) {
+                $avisos[] = [
+                    'usuario_id' => $usuarioId,
+                    'tipo' => 'TURNO',
+                    'canal' => $canal,
+                    'mensaje' => mb_substr($mensaje, 0, 500),
+                    'fecha_programada' => date('Y-m-d H:i:s'),
+                    'id_operacion' => "$operacion-$quien-$sufijo",
+                ];
+            }
+        }
+
+        return $avisos;
+    }
+
     // Deja los avisos en Backend. Devuelve cuántos quedaron (el resto va al log).
     public static function enviar(array $avisos): int
     {

@@ -107,8 +107,11 @@ class TurnoControlador
         }
 
         $turno = $repositorio->detalle($resultado);
-        // Aviso al dueño por la campana y por WhatsApp (25/11).
-        AvisosTurno::enviar(AvisosTurno::asignado($turno));
+        // Aviso al dueño por la campana y por WhatsApp (25/11). El del chequeo de adopción no: lo
+        // manda Adopciones al adoptante y a la rescatista cuando se asigna (27/11).
+        if (!AvisosTurno::esChequeo($turno)) {
+            AvisosTurno::enviar(AvisosTurno::asignado($turno));
+        }
 
         Response::json(['turno' => $turno], 201);
     }
@@ -146,7 +149,11 @@ class TurnoControlador
         switch ($repositorio->reprogramar($id, $datos['fecha'], $datos['hora'], self::precioPara($datos['fecha'], $datos['hora']))) {
             case 'ok':
                 $turno = $repositorio->detalle($id);
-                AvisosTurno::enviar(AvisosTurno::reprogramado($turno, date('YmdHis')));
+                // El chequeo de una adopción: al adoptante y a la rescatista (27/11).
+                $adopcion = AvisosTurno::esChequeo($turno) ? $repositorio->adopcionDelChequeo($id) : null;
+                AvisosTurno::enviar($adopcion !== null
+                    ? AvisosTurno::chequeoReprogramado($turno, $adopcion, date('YmdHis'))
+                    : AvisosTurno::reprogramado($turno, date('YmdHis')));
                 Response::json(['turno' => $turno]);
                 return;
             case 'inexistente':
@@ -187,8 +194,12 @@ class TurnoControlador
             case 'ok':
                 $turno = $repositorio->detalle($id);
                 // Al cancelarlo, se le avisa al dueño (25/11). Marcarlo ausente no avisa.
+                // El chequeo de una adopción: al adoptante y a la rescatista (27/11).
                 if ($estado === 'CANCELADO') {
-                    AvisosTurno::enviar(AvisosTurno::cancelado($turno));
+                    $adopcion = AvisosTurno::esChequeo($turno) ? $repositorio->adopcionDelChequeo($id) : null;
+                    AvisosTurno::enviar($adopcion !== null
+                        ? AvisosTurno::chequeoCancelado($turno, $adopcion)
+                        : AvisosTurno::cancelado($turno));
                 }
                 Response::json(['turno' => $turno]);
                 return;

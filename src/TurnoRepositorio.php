@@ -43,6 +43,27 @@ class TurnoRepositorio
         return $this->turnos(self::SELECT_TURNO . ' WHERE t.id = ?', [$id])[0] ?? null;
     }
 
+    // La adopción que tiene este turno como chequeo (27/11): {adoptante_id, adoptante}, o null si el
+    // turno no está asignado a ninguna adopción en curso. Lee la tabla adopcion (SELECT, permisos de
+    // la migración 007). Si no se puede leer, null: el aviso sale como el de cualquier turno.
+    public function adopcionDelChequeo(int $turnoId): ?array
+    {
+        try {
+            $consulta = $this->db->prepare(
+                "SELECT a.adoptante_id, u.nombre AS adoptante
+                 FROM adopcion a JOIN usuario u ON u.id = a.adoptante_id
+                 WHERE a.turno_chequeo_id = ? AND a.estado = 'CHEQUEO_PENDIENTE'"
+            );
+            $consulta->execute([$turnoId]);
+            $fila = $consulta->fetch();
+        } catch (PDOException $error) {
+            Logger::error('Pacientes: no se pudo leer la adopción del chequeo ' . $turnoId . ': ' . $error->getMessage());
+            return null;
+        }
+
+        return $fila === false ? null : ['adoptante_id' => (int) $fila['adoptante_id'], 'adoptante' => $fila['adoptante']];
+    }
+
     // Carga un turno PROGRAMADO. $datos viene de ValidadorTurno; $precio, de PrecioTurno::paraTurno
     // (el precio base y el descuento de su franja, que el turno guarda: migración 020).
     // Devuelve el id nuevo, 'mascota_inexistente' (no existe o está dada de baja) u 'ocupado'
