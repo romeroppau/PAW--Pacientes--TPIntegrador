@@ -254,6 +254,43 @@ class ConsultaControlador
         Response::json($factura);
     }
 
+    // POST /api/pacientes/consultas/{id}/factura/pago — {"medio_pago": "EFECTIVO"} (veterinario, CSRF).
+    // Registra que el cliente pagó la factura en la veterinaria. 200 con la factura; 409 si ya estaba
+    // pagada; 404 si la consulta no existe o no está finalizada.
+    public static function pagarFactura(array $parametros): void
+    {
+        $sesion = self::veterinario(true);
+
+        $id = self::entero($parametros, 'id');
+        if ($id === null) {
+            Response::error('Factura no encontrada', 404);
+            return;
+        }
+
+        $datos = Request::json();
+        $errores = ValidadorConsulta::validarPago($datos);
+        if ($errores !== []) {
+            Response::error('Revisá el medio de pago', 400, $errores);
+            return;
+        }
+
+        $repositorio = self::repositorio();
+        // La hora sale de PHP (hora de Argentina, ver index.php), igual que la de la factura.
+        $resultado = $repositorio->marcarPagada($id, $datos['medio_pago'], (int) $sesion['id'], date('Y-m-d H:i:s'));
+
+        if ($resultado === 'no_existe') {
+            Response::error('Factura no encontrada', 404);
+            return;
+        }
+        if ($resultado === 'ya_pagada') {
+            Response::error('La factura ya está pagada', 409);
+            return;
+        }
+
+        Logger::info("Pacientes: el veterinario {$sesion['id']} marcó pagada la factura de la consulta $id ({$datos['medio_pago']})");
+        Response::json($repositorio->facturaConDetalle($id));
+    }
+
     // GET /api/pacientes/mascotas/{id}/historial
     // El cliente solo ve sus mascotas; si pide la de otro recibe 404, igual que si no existiera.
     public static function historial(array $parametros): void

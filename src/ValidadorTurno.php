@@ -17,7 +17,9 @@ class ValidadorTurno
     public const HORA_CIERRE = '20:00';
     private const ANIOS_HACIA_ADELANTE = 1;
 
-    public static function validarAlta(array $datos, string $hoy, ?array $horario = null): array
+    // $ahora: la hora actual (HH:MM, Argentina). Un turno de hoy no puede ser en una hora que ya pasó
+    // (27/11, devolución del profesor). Sin $ahora (las pruebas de antes), no se controla.
+    public static function validarAlta(array $datos, string $hoy, ?array $horario = null, ?string $ahora = null): array
     {
         $limpios = [];
         $errores = [];
@@ -29,7 +31,7 @@ class ValidadorTurno
             $limpios['mascota_id'] = $mascota;
         }
 
-        self::validarFechaYHora($datos, $hoy, $horario ?? self::horarioPorDefecto(), $limpios, $errores);
+        self::validarFechaYHora($datos, $hoy, $horario ?? self::horarioPorDefecto(), $limpios, $errores, $ahora);
 
         self::validarMotivos($datos, $limpios, $errores);
 
@@ -91,11 +93,11 @@ class ValidadorTurno
     }
 
     // Reprogramar: solo cambian la fecha y la hora, con las mismas reglas del alta.
-    public static function validarReprogramacion(array $datos, string $hoy, ?array $horario = null): array
+    public static function validarReprogramacion(array $datos, string $hoy, ?array $horario = null, ?string $ahora = null): array
     {
         $limpios = [];
         $errores = [];
-        self::validarFechaYHora($datos, $hoy, $horario ?? self::horarioPorDefecto(), $limpios, $errores);
+        self::validarFechaYHora($datos, $hoy, $horario ?? self::horarioPorDefecto(), $limpios, $errores, $ahora);
 
         return [$limpios, $errores];
     }
@@ -114,7 +116,7 @@ class ValidadorTurno
         return implode(' y ', array_map(fn ($f) => 'de ' . $f['apertura'] . ' a ' . $f['cierre'], $franjas));
     }
 
-    private static function validarFechaYHora(array $datos, string $hoy, array $horario, array &$limpios, array &$errores): void
+    private static function validarFechaYHora(array $datos, string $hoy, array $horario, array &$limpios, array &$errores, ?string $ahora = null): void
     {
         // Fecha: de hoy hasta un año adelante.
         $fecha = $datos['fecha'] ?? null;
@@ -140,6 +142,9 @@ class ValidadorTurno
             $errores['hora'] = 'La hora debe tener el formato HH:MM';
         } elseif (!$dentro($hora)) {
             $errores['hora'] = 'El horario de atención es ' . self::textoHorario($franjas);
+        } elseif ($ahora !== null && ($limpios['fecha'] ?? null) === $hoy && $hora < $ahora) {
+            // Hoy, una hora que ya pasó (la misma hora y minuto todavía vale: el paciente está llegando).
+            $errores['hora'] = "Esa hora ya pasó: hoy el turno tiene que ser a las $ahora o después";
         } else {
             $limpios['hora'] = $hora;
         }

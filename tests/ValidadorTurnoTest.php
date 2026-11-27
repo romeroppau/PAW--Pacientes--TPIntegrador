@@ -6,6 +6,24 @@ class ValidadorTurnoTest extends TestCase
 {
     private const HOY = '2026-11-06';
 
+    // 27/11 (devolución del profesor): hoy, una hora que ya pasó no vale; la de ahora sí, y otro día, cualquiera.
+    public function testHoyNoSePuedeDarUnTurnoEnUnaHoraQueYaPaso(): void
+    {
+        $base = ['mascota_id' => 101, 'motivo' => 'CONSULTA'];
+
+        [, $errores] = ValidadorTurno::validarAlta($base + ['fecha' => self::HOY, 'hora' => '10:00'], self::HOY, null, '15:20');
+        $this->assertSame('Esa hora ya pasó: hoy el turno tiene que ser a las 15:20 o después', $errores['hora']);
+
+        [, $errores] = ValidadorTurno::validarAlta($base + ['fecha' => self::HOY, 'hora' => '15:20'], self::HOY, null, '15:20');
+        $this->assertSame([], $errores);
+
+        [, $errores] = ValidadorTurno::validarAlta($base + ['fecha' => '2026-11-07', 'hora' => '08:00'], self::HOY, null, '15:20');
+        $this->assertSame([], $errores);
+
+        [, $errores] = ValidadorTurno::validarReprogramacion(['fecha' => self::HOY, 'hora' => '09:30'], self::HOY, null, '15:20');
+        $this->assertArrayHasKey('hora', $errores);
+    }
+
     public function testAceptaUnTurnoValido(): void
     {
         $datos = ['mascota_id' => 101, 'fecha' => self::HOY, 'hora' => '17:30', 'motivo' => 'VACUNACION', 'plan_sanitario_id' => 5];

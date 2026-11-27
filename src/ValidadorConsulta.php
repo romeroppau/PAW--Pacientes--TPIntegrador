@@ -107,4 +107,20 @@ class ValidadorConsulta
 
         return $errores;
     }
+
+    // Los medios con que se puede pagar la factura de una consulta en la veterinaria (migración 030).
+    public const MEDIOS_DE_PAGO = ['EFECTIVO', 'TRANSFERENCIA', 'TARJETA'];
+
+    // Marcar la factura como pagada: {"medio_pago": "EFECTIVO" | "TRANSFERENCIA" | "TARJETA"}.
+    // Devuelve los errores por campo (vacío si está bien).
+    public static function validarPago(array $datos): array
+    {
+        $medio = $datos['medio_pago'] ?? null;
+
+        if (!is_string($medio) || !in_array($medio, self::MEDIOS_DE_PAGO, true)) {
+            return ['medio_pago' => 'Elegí el medio de pago: efectivo, transferencia o tarjeta'];
+        }
+
+        return [];
+    }
 }

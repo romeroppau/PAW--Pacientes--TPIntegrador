@@ -4,6 +4,21 @@ use PHPUnit\Framework\TestCase;
 
 class ValidadorConsultaTest extends TestCase
 {
+    public function testAceptaLosTresMediosDePago(): void
+    {
+        foreach (['EFECTIVO', 'TRANSFERENCIA', 'TARJETA'] as $medio) {
+            $this->assertSame([], ValidadorConsulta::validarPago(['medio_pago' => $medio]));
+        }
+    }
+
+    public function testRechazaMedioDePagoFaltanteODesconocido(): void
+    {
+        $this->assertArrayHasKey('medio_pago', ValidadorConsulta::validarPago([]));
+        $this->assertArrayHasKey('medio_pago', ValidadorConsulta::validarPago(['medio_pago' => 'efectivo']));
+        $this->assertArrayHasKey('medio_pago', ValidadorConsulta::validarPago(['medio_pago' => 'CHEQUE']));
+        $this->assertArrayHasKey('medio_pago', ValidadorConsulta::validarPago(['medio_pago' => 1]));
+    }
+
     public function testCambiosVaciosSonValidos(): void
     {
         $this->assertSame([], ValidadorConsulta::validarCambios([]));
