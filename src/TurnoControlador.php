@@ -61,7 +61,7 @@ class TurnoControlador
         $sesion = Auth::requerirRol(['VETERINARIO']);
         Auth::verificarCsrf($sesion);
 
-        [$datos, $errores] = ValidadorTurno::validarAlta(Request::json(), date('Y-m-d'), HorarioAtencion::actual());
+        [$datos, $errores] = ValidadorTurno::validarAlta(Request::json(), date('Y-m-d'), HorarioAtencion::actual(), date('H:i'));
 
         if ($errores !== []) {
             Response::error('Revisá los datos del turno', 400, $errores);
@@ -126,7 +126,7 @@ class TurnoControlador
             return;
         }
 
-        [$datos, $errores] = ValidadorTurno::validarReprogramacion(Request::json(), date('Y-m-d'), HorarioAtencion::actual());
+        [$datos, $errores] = ValidadorTurno::validarReprogramacion(Request::json(), date('Y-m-d'), HorarioAtencion::actual(), date('H:i'));
 
         if ($errores !== []) {
             Response::error('Revisá la fecha y la hora', 400, $errores);
