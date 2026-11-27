@@ -16,6 +16,43 @@ class AvisosTurnoTest extends TestCase
         ], $extra);
     }
 
+    // 27/11: el turno del chequeo de adopción.
+    public function testReconoceElTurnoDelChequeoDeAdopcion(): void
+    {
+        $this->assertTrue(AvisosTurno::esChequeo($this->turno(['motivo' => 'CHEQUEO_ADOPCION'])));
+        $this->assertTrue(AvisosTurno::esChequeo($this->turno(['motivo' => 'CONSULTA', 'motivos' => [
+            ['motivo' => 'CONSULTA', 'evento_sanitario' => null], ['motivo' => 'CHEQUEO_ADOPCION', 'evento_sanitario' => null],
+        ]])));
+        $this->assertFalse(AvisosTurno::esChequeo($this->turno()));
+    }
+
+    public function testCancelarElChequeoLeAvisaAlAdoptanteYALaRescatistaPorCampanaYWhatsApp(): void
+    {
+        $turno = $this->turno(['motivo' => 'CHEQUEO_ADOPCION', 'mascota' => ['id' => 904, 'nombre' => 'Simba', 'especie' => 'GATO'],
+                               'duenio' => ['id' => 104, 'nombre' => 'Paula Herrera', 'telefono' => null]]);
+        $avisos = AvisosTurno::chequeoCancelado($turno, ['adoptante_id' => 103, 'adoptante' => 'Tomás Aguirre']);
+
+        $this->assertSame([103, 103, 104, 104], array_column($avisos, 'usuario_id'));
+        $this->assertSame(['WEB', 'WHATSAPP', 'WEB', 'WHATSAPP'], array_column($avisos, 'canal'));
+        $this->assertSame([
+            'turno-57-cancelado-adoptante-web', 'turno-57-cancelado-adoptante-whatsapp',
+            'turno-57-cancelado-rescatista-web', 'turno-57-cancelado-rescatista-whatsapp',
+        ], array_column($avisos, 'id_operacion'));
+        $this->assertSame('Cancelamos el turno del chequeo de adopción de Simba del jueves 26/11 a las 10:30. Te vamos a escribir por WhatsApp para coordinar uno nuevo.', $avisos[0]['mensaje']);
+        $this->assertSame('Cancelamos el turno del chequeo de adopción de Simba con Tomás Aguirre del jueves 26/11 a las 10:30. La veterinaria va a coordinar uno nuevo.', $avisos[2]['mensaje']);
+    }
+
+    public function testReprogramarElChequeoLeAvisaAlAdoptanteYALaRescatista(): void
+    {
+        $turno = $this->turno(['motivo' => 'CHEQUEO_ADOPCION', 'fecha' => '2026-11-27']);
+        $avisos = AvisosTurno::chequeoReprogramado($turno, ['adoptante_id' => 103, 'adoptante' => 'Tomás Aguirre'], '20261127110000');
+
+        $this->assertCount(4, $avisos);
+        $this->assertSame('turno-57-reprogramado-20261127110000-adoptante-whatsapp', $avisos[1]['id_operacion']);
+        $this->assertStringStartsWith('Cambiamos el turno del chequeo de adopción de Michi: ahora es el viernes 27/11 a las 10:30', $avisos[0]['mensaje']);
+        $this->assertStringStartsWith('Cambiamos el turno del chequeo de adopción de Michi con Tomás Aguirre', $avisos[2]['mensaje']);
+    }
+
     public function testAlDarElTurnoSaleUnAvisoPorCampanaYOtroPorWhatsAppAlDuenio(): void
     {
         $avisos = AvisosTurno::asignado($this->turno());
