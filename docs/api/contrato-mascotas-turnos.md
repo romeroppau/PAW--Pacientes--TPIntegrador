@@ -128,7 +128,7 @@ El mensaje de los 409 viene también en `campos.plan_sanitario_id`; los errores 
 "aplicacion"}` o `null`) y `motivo`, el **principal**: el chequeo de adopción si está entre los motivos
 (Adopciones lo busca ahí) y, si no, el primero. Al finalizar la consulta, cada evento queda dado.
 - 201: `{"turno": { ... }}`
-- 400: un error por campo (`mascota_id` no entero; fecha inválida, anterior a hoy o de más de un año adelante; hora que no es `HH:MM` o fuera del horario de atención; motivo inválido). El horario lo configura la veterinaria (ver "Horario de atención"); si no lo cambió, es de 08:00 a 20:00 y el último turno puede empezar a las 19:59.
+- 400: un error por campo (`mascota_id` no entero; fecha inválida, anterior a hoy o de más de un año adelante; hora que no es `HH:MM`, fuera del horario de atención o, si es para hoy, una hora que ya pasó (27/11: `"Esa hora ya pasó: hoy el turno tiene que ser a las 15:20 o después"`, en hora de Argentina; la hora actual todavía vale); motivo inválido). El horario lo configura la veterinaria (ver "Horario de atención"); si no lo cambió, es de 08:00 a 20:00 y el último turno puede empezar a las 19:59.
 - 404: la mascota no existe o está dada de baja.
 - 409: el veterinario ya tiene un turno a esa hora (los cancelados no cuentan). Viene con `campos.hora`.
 
@@ -184,7 +184,7 @@ Veterinario, con CSRF. Termina la promoción ahora: los turnos nuevos de esa fra
 
 Cuerpo: `{"fecha": "2026-11-12", "hora": "17:30"}`. Mismas reglas de fecha y hora que el alta.
 - 200: `{"turno": { ... }}` con la fecha y la hora nuevas. Si son las mismas que tenía, también 200.
-- 400: un error por campo (`fecha`, `hora`).
+- 400: un error por campo (`fecha`, `hora`), con las mismas reglas del alta (hoy, tampoco una hora que ya pasó).
 - 404: el turno no existe.
 - 409: el turno no está `PROGRAMADO`, o el veterinario ya tiene otro turno a esa hora (con `campos.hora`). El horario anterior queda libre al reprogramar.
 - 409 (26/11): en un turno de vacunación o desparasitación, la fecha nueva no respeta los días mínimos desde la dosis anterior (con `campos.fecha`).

@@ -122,6 +122,18 @@ Si el turno tiene motivos del calendario (vacunación o desparasitación), dentr
 }
 ```
 - 404: no existe, la consulta todavía no está finalizada o (para un cliente) la mascota no es suya.
+- El pago (migración 030, 27/11): `medio_pago` (`EFECTIVO`, `TRANSFERENCIA`, `TARJETA` o `null`) y `pagada_en` (hora de Argentina, o `null`). Las facturas pagadas antes del 27/11 tienen los dos en `null`.
+
+## Marcar la factura como pagada (27/11)
+`POST /api/pacientes/consultas/{id}/factura/pago` — Veterinario, con token CSRF. La factura se abona en la veterinaria: la veterinaria registra el pago y el medio.
+
+```json
+{ "medio_pago": "EFECTIVO" }
+```
+- 200: la factura, como en "Ver factura", con `estado: "PAGADA"`, `medio_pago` y `pagada_en`. Queda también quién la marcó (`pagada_por`, no se devuelve).
+- 400: falta el medio de pago o no es uno de los tres (`campos.medio_pago`).
+- 404: la consulta no existe o no está finalizada.
+- 409: la factura ya estaba pagada. Dos clics a la vez: la marca uno solo y el otro recibe 409.
 
 ## Historial clínico
 `GET /api/pacientes/mascotas/{id}/historial` — Cliente (solo sus mascotas) o Veterinario (cualquiera). Los rescatistas reciben 403.

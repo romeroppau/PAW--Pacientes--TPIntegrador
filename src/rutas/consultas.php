@@ -13,6 +13,7 @@ $router->delete('/api/pacientes/consultas/{id}/insumos/{itemId}', [ConsultaContr
 $router->delete('/api/pacientes/consultas/{id}/productos/{itemId}', [ConsultaControlador::class, 'quitarProducto']);
 $router->post('/api/pacientes/consultas/{id}/finalizar', [ConsultaControlador::class, 'finalizar']);
 $router->get('/api/pacientes/consultas/{id}/factura', [ConsultaControlador::class, 'factura']);
+$router->post('/api/pacientes/consultas/{id}/factura/pago', [ConsultaControlador::class, 'pagarFactura']);
 
 $router->get('/api/pacientes/mascotas/{id}/historial', [ConsultaControlador::class, 'historial']);
 // Pacientes atendidos (la veterinaria, "Historial clínico"): las mascotas con consultas, de a 20.

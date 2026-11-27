@@ -286,10 +286,29 @@ class ConsultaRepositorio
     public function factura(int $consultaId): ?array
     {
         return $this->fila(
-            'SELECT numero, subtotal_base, subtotal_insumos, subtotal_productos, total, estado, fecha
-             FROM factura_consulta WHERE consulta_id = ?',
+            "SELECT numero, subtotal_base, subtotal_insumos, subtotal_productos, total, estado, fecha,
+                    medio_pago, DATE_FORMAT(pagada_en, '%Y-%m-%d %H:%i:%s') AS pagada_en
+             FROM factura_consulta WHERE consulta_id = ?",
             [$consultaId]
         );
+    }
+
+    // La veterinaria registra el pago de la factura (migración 030): queda PAGADA con el medio, cuándo
+    // y quién. Solo si estaba pendiente: dos clics a la vez no la marcan dos veces (el UPDATE es
+    // condicional). Devuelve 'pagada', 'ya_pagada' o 'no_existe'.
+    public function marcarPagada(int $consultaId, string $medio, int $usuarioId, string $ahora): string
+    {
+        $cambiadas = $this->ejecutar(
+            "UPDATE factura_consulta SET estado = 'PAGADA', medio_pago = ?, pagada_en = ?, pagada_por = ?
+             WHERE consulta_id = ? AND estado = 'PENDIENTE_PAGO'",
+            [$medio, $ahora, $usuarioId, $consultaId]
+        );
+
+        if ($cambiadas === 1) {
+            return 'pagada';
+        }
+
+        return $this->factura($consultaId) === null ? 'no_existe' : 'ya_pagada';
     }
 
     // La factura con lo que hace falta para mostrarla: la consulta (fecha del turno, diagnóstico y
